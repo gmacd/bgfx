@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2015 Branimir Karadzic. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * Copyright 2011-2016 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #include "entry_p.h"
@@ -9,7 +9,7 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include <bgfxplatform.h>
+#include <bgfx/bgfxplatform.h>
 
 #include <bx/uint32_t.h>
 #include <bx/thread.h>
@@ -39,11 +39,25 @@
 - (void)windowWillClose:(NSNotification*)notification;
 - (BOOL)windowShouldClose:(NSWindow*)window;
 - (void)windowDidResize:(NSNotification*)notification;
+- (void)windowDidBecomeKey:(NSNotification *)notification;
+- (void)windowDidResignKey:(NSNotification *)notification;
 
 @end
 
 namespace entry
 {
+	///
+	inline void osxSetNSWindow(void* _window, void* _nsgl = NULL)
+	{
+		bgfx::PlatformData pd;
+		pd.ndt          = NULL;
+		pd.nwh          = _window;
+		pd.context      = _nsgl;
+		pd.backBuffer   = NULL;
+		pd.backBufferDS = NULL;
+		bgfx::setPlatformData(pd);
+	}
+
 	static WindowHandle s_defaultWindow = { 0 };	// TODO: Add support for more windows
 	static uint8_t s_translateKey[256];
 
@@ -86,8 +100,8 @@ namespace entry
 			, m_fullscreen(false)
 		{
 			s_translateKey[27]             = Key::Esc;
-			s_translateKey[13]             = Key::Return;
-			s_translateKey[9]              = Key::Tab;
+			s_translateKey[uint8_t('\n')]  = Key::Return;
+			s_translateKey[uint8_t('\t')]  = Key::Tab;
 			s_translateKey[127]            = Key::Backspace;
 			s_translateKey[uint8_t(' ')]   = Key::Space;
 
@@ -95,6 +109,28 @@ namespace entry
 			s_translateKey[uint8_t('=')]   = Key::Plus;
 			s_translateKey[uint8_t('_')]   =
 			s_translateKey[uint8_t('-')]   = Key::Minus;
+
+			s_translateKey[uint8_t('~')]   =
+			s_translateKey[uint8_t('`')]   = Key::Tilde;
+
+			s_translateKey[uint8_t(':')]   =
+			s_translateKey[uint8_t(';')]   = Key::Semicolon;
+			s_translateKey[uint8_t('"')]   =
+			s_translateKey[uint8_t('\'')]  = Key::Quote;
+
+			s_translateKey[uint8_t('{')]   =
+			s_translateKey[uint8_t('[')]   = Key::LeftBracket;
+			s_translateKey[uint8_t('}')]   =
+			s_translateKey[uint8_t(']')]   = Key::RightBracket;
+
+			s_translateKey[uint8_t('<')]   =
+			s_translateKey[uint8_t(',')]   = Key::Comma;
+			s_translateKey[uint8_t('>')]   =
+			s_translateKey[uint8_t('.')]   = Key::Period;
+			s_translateKey[uint8_t('?')]   =
+			s_translateKey[uint8_t('/')]   = Key::Slash;
+			s_translateKey[uint8_t('|')]   =
+			s_translateKey[uint8_t('\\')]  = Key::Backslash;
 
 			s_translateKey[uint8_t('0')]   = Key::Key0;
 			s_translateKey[uint8_t('1')]   = Key::Key1;
@@ -249,7 +285,7 @@ namespace entry
 					{
 						// TODO: remove!
 						// Command + Left Mouse Button acts as middle! This just a temporary solution!
-						// This is becase the average OSX user doesn't have middle mouse click.
+						// This is because the average OSX user doesn't have middle mouse click.
 						MouseButton::Enum mb = ([event modifierFlags] & NSCommandKeyMask) ? MouseButton::Middle : MouseButton::Left;
 						m_eventQueue.postMouseEvent(s_defaultWindow, m_mx, m_my, m_scroll, mb, true);
 						break;
@@ -311,19 +347,9 @@ namespace entry
 							else
 							{
 								enum { ShiftMask = Modifier::LeftShift|Modifier::RightShift };
-								const bool nonShiftModifiers = (0 != (modifiers&(~ShiftMask) ) );
-								const bool isCharPressed = (Key::Key0 <= key && key <= Key::KeyZ) || (Key::Esc <= key && key <= Key::Minus);
-								const bool isText = isCharPressed && !nonShiftModifiers;
-								if (isText)
-								{
-									m_eventQueue.postCharEvent(s_defaultWindow, 1, pressedChar);
-									return false;
-								}
-								else
-								{
-									m_eventQueue.postKeyEvent(s_defaultWindow, key, modifiers, true);
-									return false;
-								}
+								m_eventQueue.postCharEvent(s_defaultWindow, 1, pressedChar);
+								m_eventQueue.postKeyEvent(s_defaultWindow, key, modifiers, true);
+								return false;
 							}
 						}
 
@@ -372,6 +398,18 @@ namespace entry
 			m_eventQueue.postMouseEvent(s_defaultWindow, m_mx, m_my, m_scroll, MouseButton::Right, false);
 		}
 
+		void windowDidBecomeKey()
+		{
+            m_eventQueue.postSuspendEvent(s_defaultWindow, Suspend::WillResume);
+			m_eventQueue.postSuspendEvent(s_defaultWindow, Suspend::DidResume);
+		}
+
+		void windowDidResignKey()
+		{
+            m_eventQueue.postSuspendEvent(s_defaultWindow, Suspend::WillSuspend);
+			m_eventQueue.postSuspendEvent(s_defaultWindow, Suspend::DidSuspend);
+		}
+
 		int32_t run(int _argc, char** _argv)
 		{
 			[NSApplication sharedApplication];
@@ -418,7 +456,7 @@ namespace entry
 			const float centerY = (screenRect.size.height - (float)ENTRY_DEFAULT_HEIGHT)*0.5f;
 
 			m_windowAlloc.alloc();
-			NSRect rect = NSMakeRect(centerX, centerY, (float)ENTRY_DEFAULT_WIDTH, (float)ENTRY_DEFAULT_HEIGHT);
+			NSRect rect = NSMakeRect(centerX, centerY, ENTRY_DEFAULT_WIDTH, ENTRY_DEFAULT_HEIGHT);
 			NSWindow* window = [[NSWindow alloc]
 				initWithContentRect:rect
 				styleMask:m_style
@@ -434,7 +472,7 @@ namespace entry
 			m_window[0] = window;
 			m_windowFrame = [window frame];
 
-			bgfx::osxSetNSWindow(window);
+			osxSetNSWindow(window);
 
 			MainThreadEntry mte;
 			mte.m_argc = _argc;
@@ -442,6 +480,9 @@ namespace entry
 
 			bx::Thread thread;
 			thread.init(mte.threadFunc, &mte);
+
+			WindowHandle handle = { 0 };
+			m_eventQueue.postSizeEvent(handle, ENTRY_DEFAULT_WIDTH, ENTRY_DEFAULT_HEIGHT);
 
 			while (!(m_exit = [dg applicationHasTerminated]) )
 			{
@@ -584,10 +625,10 @@ namespace entry
 
 			if (!s_ctx.m_fullscreen)
 			{
-				[NSMenu setMenuBarVisible: false];
 				s_ctx.m_style &= ~NSTitledWindowMask;
 				dispatch_async(dispatch_get_main_queue()
 				, ^{
+					[NSMenu setMenuBarVisible: false];
 					[window setStyleMask: s_ctx.m_style];
 					[window setFrame:screenRect display:YES];
 				});
@@ -596,10 +637,10 @@ namespace entry
 			}
 			else
 			{
-				[NSMenu setMenuBarVisible: true];
 				s_ctx.m_style |= NSTitledWindowMask;
 				dispatch_async(dispatch_get_main_queue()
 				, ^{
+					[NSMenu setMenuBarVisible: true];
 					[window setStyleMask: s_ctx.m_style];
 					[window setFrame:s_ctx.m_windowFrame display:YES];
 				});
@@ -709,6 +750,20 @@ namespace entry
 	BX_UNUSED(notification);
 	using namespace entry;
 	s_ctx.windowDidResize();
+}
+
+- (void)windowDidBecomeKey:(NSNotification*)notification
+{
+    BX_UNUSED(notification);
+    using namespace entry;
+    s_ctx.windowDidBecomeKey();
+}
+
+- (void)windowDidResignKey:(NSNotification*)notification
+{
+    BX_UNUSED(notification);
+    using namespace entry;
+    s_ctx.windowDidResignKey();
 }
 
 @end

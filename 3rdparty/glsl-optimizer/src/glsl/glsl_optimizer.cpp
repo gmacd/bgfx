@@ -206,6 +206,14 @@ static inline void debug_print_ir (const char* name, exec_list* ir, _mesa_glsl_p
 	#endif
 }
 
+
+struct precision_ctx
+{
+	exec_list* root_ir;
+	bool res;
+};
+
+
 static void propagate_precision_deref(ir_instruction *ir, void *data)
 {
 	// variable deref with undefined precision: take from variable itself
@@ -213,7 +221,7 @@ static void propagate_precision_deref(ir_instruction *ir, void *data)
 	if (der && der->get_precision() == glsl_precision_undefined && der->var->data.precision != glsl_precision_undefined)
 	{
 		der->set_precision ((glsl_precision)der->var->data.precision);
-		*(bool*)data = true;
+		((precision_ctx*)data)->res = true;
 	}
 	
 	// array deref with undefined precision: take from array itself
@@ -221,7 +229,7 @@ static void propagate_precision_deref(ir_instruction *ir, void *data)
 	if (der_arr && der_arr->get_precision() == glsl_precision_undefined && der_arr->array->get_precision() != glsl_precision_undefined)
 	{
 		der_arr->set_precision (der_arr->array->get_precision());
-		*(bool*)data = true;
+		((precision_ctx*)data)->res = true;
 	}
 	
 	// swizzle with undefined precision: take from swizzle argument
@@ -229,7 +237,7 @@ static void propagate_precision_deref(ir_instruction *ir, void *data)
 	if (swz && swz->get_precision() == glsl_precision_undefined && swz->val->get_precision() != glsl_precision_undefined)
 	{
 		swz->set_precision (swz->val->get_precision());
-		*(bool*)data = true;
+		((precision_ctx*)data)->res = true;
 	}
 	
 }
@@ -252,31 +260,102 @@ static void propagate_precision_expr(ir_instruction *ir, void *data)
 	if (expr->get_precision() != prec_params_max)
 	{
 		expr->set_precision (prec_params_max);
-		*(bool*)data = true;
+		((precision_ctx*)data)->res = true;
 	}
 	
+}
+
+static void propagate_precision_texture(ir_instruction *ir, void *data)
+{
+	ir_texture* tex = ir->as_texture();
+	if (!tex)
+		return;
+
+	glsl_precision sampler_prec = tex->sampler->get_precision();
+	if (tex->get_precision() == sampler_prec || sampler_prec == glsl_precision_undefined)
+		return;
+
+	// set precision of ir_texture node to that of the sampler itself
+	tex->set_precision(sampler_prec);
+	((precision_ctx*)data)->res = true;
+}
+
+struct undefined_ass_ctx
+{
+	ir_variable* var;
+	bool res;
+};
+
+static void has_only_undefined_precision_assignments(ir_instruction *ir, void *data)
+{
+	ir_assignment* ass = ir->as_assignment();
+	if (!ass)
+		return;
+	undefined_ass_ctx* ctx = (undefined_ass_ctx*)data;
+	if (ass->whole_variable_written() != ctx->var)
+		return;
+	glsl_precision prec = ass->rhs->get_precision();
+	if (prec == glsl_precision_undefined)
+		return;
+	ctx->res = false;
 }
 
 
 static void propagate_precision_assign(ir_instruction *ir, void *data)
 {
 	ir_assignment* ass = ir->as_assignment();
-	if (ass && ass->lhs && ass->rhs)
+	if (!ass || !ass->lhs || !ass->rhs)
+		return;
+
+	glsl_precision lp = ass->lhs->get_precision();
+	glsl_precision rp = ass->rhs->get_precision();
+
+	// for assignments with LHS having undefined precision, take it from RHS
+	if (rp != glsl_precision_undefined)
 	{
-		glsl_precision lp = ass->lhs->get_precision();
-		glsl_precision rp = ass->rhs->get_precision();
-		if (rp == glsl_precision_undefined)
-			return;
 		ir_variable* lhs_var = ass->lhs->variable_referenced();
 		if (lp == glsl_precision_undefined)
 		{		
 			if (lhs_var)
 				lhs_var->data.precision = rp;
 			ass->lhs->set_precision (rp);
-			*(bool*)data = true;
+			((precision_ctx*)data)->res = true;
 		}
+		return;
+	}
+	
+	// for assignments where LHS has precision, but RHS is a temporary variable
+	// with undefined precision that's only assigned from other undefined precision
+	// sources -> make the RHS variable take LHS precision
+	if (lp != glsl_precision_undefined && rp == glsl_precision_undefined)
+	{
+		ir_dereference* deref = ass->rhs->as_dereference();
+		if (deref)
+		{
+			ir_variable* rhs_var = deref->variable_referenced();
+			if (rhs_var && rhs_var->data.mode == ir_var_temporary && rhs_var->data.precision == glsl_precision_undefined)
+			{
+				undefined_ass_ctx ctx;
+				ctx.var = rhs_var;
+				// find if we only assign to it from undefined precision sources
+				ctx.res = true;
+				exec_list* root_ir = ((precision_ctx*)data)->root_ir;
+				foreach_in_list(ir_instruction, inst, root_ir)
+				{
+					visit_tree (ir, has_only_undefined_precision_assignments, &ctx);
+				}
+				if (ctx.res)
+				{
+					rhs_var->data.precision = lp;
+					ass->rhs->set_precision(lp);
+					((precision_ctx*)data)->res = true;
+				}
+			}
+		}
+		return;
 	}
 }
+
 
 static void propagate_precision_call(ir_instruction *ir, void *data)
 {
@@ -302,28 +381,40 @@ static void propagate_precision_call(ir_instruction *ir, void *data)
 		if (call->return_deref->get_precision() != prec_params_max)
 		{
 			call->return_deref->set_precision (prec_params_max);
-			*(bool*)data = true;
+			((precision_ctx*)data)->res = true;
 		}
 	}
 }
 
-
 static bool propagate_precision(exec_list* list, bool assign_high_to_undefined)
 {
 	bool anyProgress = false;
-	bool res;
+	precision_ctx ctx;
+	
 	do {
-		res = false;
+		ctx.res = false;
+		ctx.root_ir = list;
 		foreach_in_list(ir_instruction, ir, list)
 		{
-			visit_tree (ir, propagate_precision_deref, &res);
-			visit_tree (ir, propagate_precision_assign, &res);
-			visit_tree (ir, propagate_precision_call, &res);
-			visit_tree (ir, propagate_precision_expr, &res);
+			visit_tree (ir, propagate_precision_texture, &ctx);
+			visit_tree (ir, propagate_precision_deref, &ctx);
+			bool hadProgress = ctx.res;
+			ctx.res = false;
+			visit_tree (ir, propagate_precision_assign, &ctx);
+			if (ctx.res)
+			{
+				// assignment precision propagation might have added precision
+				// to some variables; need to propagate dereference precision right
+				// after that too.
+				visit_tree (ir, propagate_precision_deref, &ctx);
+			}
+			ctx.res |= hadProgress;
+			visit_tree (ir, propagate_precision_call, &ctx);
+			visit_tree (ir, propagate_precision_expr, &ctx);
 		}
-		anyProgress |= res;
-	} while (res);
-	anyProgress |= res;
+		anyProgress |= ctx.res;
+	} while (ctx.res);
+	anyProgress |= ctx.res;
 	
 	// for globals that have undefined precision, set it to highp
 	if (assign_high_to_undefined)
@@ -349,8 +440,12 @@ static bool propagate_precision(exec_list* list, bool assign_high_to_undefined)
 static void do_optimization_passes(exec_list* ir, bool linked, _mesa_glsl_parse_state* state, void* mem_ctx)
 {
 	bool progress;
+	// FIXME: Shouldn't need to bound the number of passes
+	int passes = 0,
+		kMaximumPasses = 1000;
 	do {
 		progress = false;
+		++passes;
 		bool progress2;
 		debug_print_ir ("Initial", ir, state, mem_ctx);
 		if (linked) {
@@ -363,10 +458,6 @@ static void do_optimization_passes(exec_list* ir, bool linked, _mesa_glsl_parse_
 		progress2 = propagate_precision (ir, state->metal_target); progress |= progress2; if (progress2) debug_print_ir ("After prec propagation", ir, state, mem_ctx);
 		progress2 = do_copy_propagation(ir); progress |= progress2; if (progress2) debug_print_ir ("After copy propagation", ir, state, mem_ctx);
 		progress2 = do_copy_propagation_elements(ir); progress |= progress2; if (progress2) debug_print_ir ("After copy propagation elems", ir, state, mem_ctx);
-		if (state->es_shader && linked)
-		{
-			progress2 = optimize_split_vectors(ir, linked, OPT_SPLIT_ONLY_LOOP_INDUCTORS); progress |= progress2; if (progress2) debug_print_ir("After split vectors", ir, state, mem_ctx);
-		}
 
 		if (linked)
 		{
@@ -397,7 +488,6 @@ static void do_optimization_passes(exec_list* ir, bool linked, _mesa_glsl_parse_
 		progress2 = do_swizzle_swizzle(ir); progress |= progress2; if (progress2) debug_print_ir ("After swizzle swizzle", ir, state, mem_ctx);
 		progress2 = do_noop_swizzle(ir); progress |= progress2; if (progress2) debug_print_ir ("After noop swizzle", ir, state, mem_ctx);
 		progress2 = optimize_split_arrays(ir, linked, state->metal_target && state->stage == MESA_SHADER_FRAGMENT); progress |= progress2; if (progress2) debug_print_ir ("After split arrays", ir, state, mem_ctx);
-		progress2 = optimize_split_vectors(ir, linked, OPT_SPLIT_ONLY_UNUSED); progress |= progress2; if (progress2) debug_print_ir("After split unused vectors", ir, state, mem_ctx);
 		progress2 = optimize_redundant_jumps(ir); progress |= progress2; if (progress2) debug_print_ir ("After redundant jumps", ir, state, mem_ctx);
 
 		// do loop stuff only when linked; otherwise causes duplicate loop induction variable
@@ -411,7 +501,7 @@ static void do_optimization_passes(exec_list* ir, bool linked, _mesa_glsl_parse_
 			}
 			delete ls;
 		}
-	} while (progress);
+	} while (progress && passes < kMaximumPasses);
 
 	if (!state->metal_target)
 	{
@@ -437,7 +527,14 @@ static void glsl_type_to_optimizer_desc(const glsl_type* type, glsl_precision pr
 	else if (type->is_sampler())
 	{
 		if (type->sampler_dimensionality == GLSL_SAMPLER_DIM_2D)
-			out->type = kGlslTypeTex2D;
+		{
+			if (type->sampler_shadow)
+				out->type = kGlslTypeTex2DShadow;
+			else if (type->sampler_array)
+				out->type = kGlslTypeTex2DArray;
+			else
+				out->type = kGlslTypeTex2D;
+		}
 		else if (type->sampler_dimensionality == GLSL_SAMPLER_DIM_3D)
 			out->type = kGlslTypeTex3D;
 		else if (type->sampler_dimensionality == GLSL_SAMPLER_DIM_CUBE)

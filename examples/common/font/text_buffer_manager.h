@@ -1,6 +1,6 @@
 /*
  * Copyright 2013 Jeremie Roy. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #ifndef TEXT_BUFFER_MANAGER_H_HEADER_GUARD
@@ -88,7 +88,7 @@ private:
 	bx::HandleAllocT<MAX_TEXT_BUFFER_COUNT> m_textBufferHandles;
 	FontManager* m_fontManager;
 	bgfx::VertexDecl m_vertexDecl;
-	bgfx::UniformHandle u_texColor;
+	bgfx::UniformHandle s_texColor;
 	bgfx::ProgramHandle m_basicProgram;
 	bgfx::ProgramHandle m_distanceProgram;
 	bgfx::ProgramHandle m_distanceSubpixelProgram;

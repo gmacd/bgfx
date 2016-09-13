@@ -1,22 +1,22 @@
 /*
- * Copyright 2011-2015 Branimir Karadzic. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * Copyright 2011-2016 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #include "bgfx_p.h"
 
 #if BX_PLATFORM_NACL && (BGFX_CONFIG_RENDERER_OPENGLES || BGFX_CONFIG_RENDERER_OPENGL)
-#	include <bgfxplatform.h>
+#	include <bgfx/bgfxplatform.h>
 #	include "renderer_gl.h"
 
-namespace bgfx
+namespace bgfx { namespace gl
 {
 #	define GL_IMPORT(_optional, _proto, _func, _import) _proto _func
 #	include "glimports.h"
 
 	void naclSwapCompleteCb(void* /*_data*/, int32_t /*_result*/);
 
-	PP_CompletionCallback naclSwapComplete = 
+	PP_CompletionCallback naclSwapComplete =
 	{
 		naclSwapCompleteCb,
 		NULL,
@@ -31,6 +31,7 @@ namespace bgfx
 			, m_instInterface(NULL)
 			, m_graphicsInterface(NULL)
 			, m_instancedArrays(NULL)
+			, m_query(NULL)
 			, m_postSwapBuffers(NULL)
 			, m_forceSwap(true)
 		{
@@ -38,7 +39,7 @@ namespace bgfx
 
 		bool setInterfaces(PP_Instance _instance, const PPB_Instance* _instInterface, const PPB_Graphics3D* _graphicsInterface, PostSwapBuffersFn _postSwapBuffers);
 
-		void resize(uint32_t _width, uint32_t _height, bool /*_vsync*/)
+		void resize(uint32_t _width, uint32_t _height, uint32_t /*_flags*/)
 		{
 			m_graphicsInterface->ResizeBuffers(m_context, _width, _height);
 		}
@@ -59,10 +60,11 @@ namespace bgfx
 		const PPB_Instance* m_instInterface;
 		const PPB_Graphics3D* m_graphicsInterface;
 		const PPB_OpenGLES2InstancedArrays* m_instancedArrays;
+		const PPB_OpenGLES2Query* m_query;
 		PostSwapBuffersFn m_postSwapBuffers;
 		bool m_forceSwap;
 	};
-	
+
 	static Ppapi s_ppapi;
 
 	void naclSwapCompleteCb(void* /*_data*/, int32_t /*_result*/)
@@ -95,9 +97,40 @@ namespace bgfx
 		s_ppapi.m_instancedArrays->DrawElementsInstancedANGLE(s_ppapi.m_context, _mode, _count, _type, _indices, _primcount);
 	}
 
-	bool naclSetInterfaces(PP_Instance _instance, const PPB_Instance* _instInterface, const PPB_Graphics3D* _graphicsInterface, PostSwapBuffersFn _postSwapBuffers)
+	static void GL_APIENTRY naclGenQueries(GLsizei _n, GLuint* _queries)
 	{
-		return s_ppapi.setInterfaces( _instance, _instInterface, _graphicsInterface, _postSwapBuffers);
+		s_ppapi.m_query->GenQueriesEXT(s_ppapi.m_context, _n, _queries);
+	}
+
+	static void GL_APIENTRY naclDeleteQueries(GLsizei _n, const GLuint* _queries)
+	{
+		s_ppapi.m_query->DeleteQueriesEXT(s_ppapi.m_context, _n, _queries);
+	}
+
+	static void GL_APIENTRY naclBeginQuery(GLenum _target, GLuint _id)
+	{
+		BX_UNUSED(_target);
+		s_ppapi.m_query->BeginQueryEXT(s_ppapi.m_context, GL_ANY_SAMPLES_PASSED_EXT, _id);
+	}
+
+	static void GL_APIENTRY naclEndQuery(GLenum _target)
+	{
+		BX_UNUSED(_target);
+		s_ppapi.m_query->EndQueryEXT(s_ppapi.m_context, GL_ANY_SAMPLES_PASSED_EXT);
+	}
+
+	static void GL_APIENTRY naclGetQueryObjectiv(GLuint _id, GLenum _pname, GLint* _params)
+	{
+		BX_UNUSED(_id, _pname);
+		s_ppapi.m_query->GetQueryivEXT(s_ppapi.m_context, GL_ANY_SAMPLES_PASSED_EXT, GL_CURRENT_QUERY_EXT, _params);
+	}
+
+	static void GL_APIENTRY naclGetQueryObjectui64v(GLuint _id, GLenum _pname, GLuint64* _params)
+	{
+		BX_UNUSED(_id, _pname);
+		GLint params;
+		s_ppapi.m_query->GetQueryivEXT(s_ppapi.m_context, GL_ANY_SAMPLES_PASSED_EXT, GL_CURRENT_QUERY_EXT, &params);
+		*_params = params;
 	}
 
 	bool Ppapi::setInterfaces(PP_Instance _instance, const PPB_Instance* _instInterface, const PPB_Graphics3D* _graphicsInterface, PostSwapBuffersFn _postSwapBuffers)
@@ -108,6 +141,7 @@ namespace bgfx
 		m_instInterface = _instInterface;
 		m_graphicsInterface = _graphicsInterface;
 		m_instancedArrays = glGetInstancedArraysInterfacePPAPI();
+		m_query = glGetQueryInterfacePPAPI();
 		m_postSwapBuffers = _postSwapBuffers;
 
 		int32_t attribs[] =
@@ -133,9 +167,22 @@ namespace bgfx
 		glSetCurrentContextPPAPI(m_context);
 		m_graphicsInterface->SwapBuffers(m_context, naclSwapComplete);
 
-		glVertexAttribDivisor   = naclVertexAttribDivisor;
-		glDrawArraysInstanced   = naclDrawArraysInstanced;
-		glDrawElementsInstanced = naclDrawElementsInstanced;
+		if (NULL != m_instancedArrays)
+		{
+			glVertexAttribDivisor   = naclVertexAttribDivisor;
+			glDrawArraysInstanced   = naclDrawArraysInstanced;
+			glDrawElementsInstanced = naclDrawElementsInstanced;
+		}
+
+		if (NULL != m_query)
+		{
+			glGenQueries          = naclGenQueries;
+			glDeleteQueries       = naclDeleteQueries;
+			glBeginQuery          = naclBeginQuery;
+			glEndQuery            = naclEndQuery;
+			glGetQueryObjectiv    = naclGetQueryObjectiv;
+			glGetQueryObjectui64v = naclGetQueryObjectui64v;
+		}
 
 		// Prevent render thread creation.
 		RenderFrame::Enum result = renderFrame();
@@ -146,21 +193,23 @@ namespace bgfx
 	{
 		BX_UNUSED(_width, _height);
 		BX_TRACE("GlContext::create");
+
+		g_internalData.context = &s_ppapi.m_context;
 	}
 
 	void GlContext::destroy()
 	{
 	}
 
-	void GlContext::resize(uint32_t _width, uint32_t _height, bool _vsync)
+	void GlContext::resize(uint32_t _width, uint32_t _height, uint32_t _flags)
 	{
 		s_ppapi.m_forceSwap = false;
-		s_ppapi.resize(_width, _height, _vsync);
+		s_ppapi.resize(_width, _height, _flags);
 	}
 
-	bool GlContext::isSwapChainSupported()
+	uint64_t GlContext::getCaps() const
 	{
-		return false;
+		return 0;
 	}
 
 	SwapChainGL* GlContext::createSwapChain(void* /*_nwh*/)
@@ -192,6 +241,14 @@ namespace bgfx
 		return s_ppapi.isValid();
 	}
 
+} /* namespace gl */ } // namespace bgfx
+
+namespace bgfx
+{
+	bool naclSetInterfaces(PP_Instance _instance, const PPB_Instance* _instInterface, const PPB_Graphics3D* _graphicsInterface, PostSwapBuffersFn _postSwapBuffers)
+	{
+		return gl::s_ppapi.setInterfaces( _instance, _instInterface, _graphicsInterface, _postSwapBuffers);
+	}
 } // namespace bgfx
 
 #endif // BX_PLATFORM_NACL && (BGFX_CONFIG_RENDERER_OPENGLES || BGFX_CONFIG_RENDERER_OPENGL)

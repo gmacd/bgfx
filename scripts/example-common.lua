@@ -1,6 +1,6 @@
 --
--- Copyright 2010-2015 Branimir Karadzic. All rights reserved.
--- License: http://www.opensource.org/licenses/BSD-2-Clause
+-- Copyright 2010-2016 Branimir Karadzic. All rights reserved.
+-- License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
 --
 
 project ("example-common")
@@ -19,8 +19,33 @@ project ("example-common")
 		path.join(BGFX_DIR, "3rdparty/ocornut-imgui/**.cpp"),
 		path.join(BGFX_DIR, "3rdparty/ocornut-imgui/**.h"),
 		path.join(BGFX_DIR, "examples/common/**.cpp"),
+		path.join(BGFX_DIR, "examples/common/**.cpp"),
 		path.join(BGFX_DIR, "examples/common/**.h"),
 	}
+
+	if _OPTIONS["with-scintilla"] then
+		defines {
+			"SCI_NAMESPACE",
+			"SCI_LEXER",
+		}
+
+		buildoptions {
+--			"-Wno-missing-field-initializers",
+		}
+
+		includedirs {
+			path.join(BGFX_DIR, "3rdparty/scintilla/include"),
+			path.join(BGFX_DIR, "3rdparty/scintilla/lexlib"),
+		}
+
+		files {
+			path.join(BGFX_DIR, "3rdparty/scintilla/src/**.cxx"),
+			path.join(BGFX_DIR, "3rdparty/scintilla/src/**.h"),
+			path.join(BGFX_DIR, "3rdparty/scintilla/lexlib/**.cxx"),
+			path.join(BGFX_DIR, "3rdparty/scintilla/lexlib/**.h"),
+			path.join(BGFX_DIR, "3rdparty/scintilla/lexers/**.cxx"),
+		}
+	end
 
 	if _OPTIONS["with-sdl"] then
 		defines {
@@ -31,18 +56,27 @@ project ("example-common")
 		}
 	end
 
-	configuration { "mingw* or vs2008" }
-		includedirs {
-			"$(DXSDK_DIR)/include",
-		}
-	if (_OPTIONS["vs"] == "vs2012-xp") or (_OPTIONS["vs"] == "vs2013-xp") then
-	configuration { "vs201*" }
-		includedirs {
-			"$(DXSDK_DIR)/include",
+	if _OPTIONS["with-glfw"] then
+		defines {
+			"ENTRY_CONFIG_USE_GLFW=1",
 		}
 	end
 
-	configuration { "winphone8*"}
+	configuration { "linux-steamlink" }
+		defines {
+			"EGL_API_FB",
+		}
+
+	configuration { "osx or ios* or tvos*" }
+		files {
+			path.join(BGFX_DIR, "examples/common/**.mm"),
+		}
+
+	configuration { "winphone8* or winstore8* or durango"}
+		files {
+			path.join(BGFX_DIR, "examples/common/**.cx"),
+		}
 		linkoptions {
 			"/ignore:4264" -- LNK4264: archiving object file compiled with /ZW into a static library; note that when authoring Windows Runtime types it is not recommended to link with a static library that contains Windows Runtime metadata
 		}
+		premake.vstudio.splashpath = "../../../examples/runtime/images/SplashScreen.png"

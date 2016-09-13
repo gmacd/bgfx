@@ -1,6 +1,6 @@
 /*
  * Copyright 2013 Dario Manesku. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #ifndef CAMERA_H_HEADER_GUARD
@@ -22,7 +22,7 @@ void cameraCreate();
 void cameraDestroy();
 
 ///
-void cameraSetPosition(float* _pos);
+void cameraSetPosition(const float* _pos);
 
 ///
 void cameraSetHorizontalAngle(float _horizontalAngle);

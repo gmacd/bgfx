@@ -1,22 +1,24 @@
 /*
- * Copyright 2010-2015 Branimir Karadzic. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * Copyright 2010-2016 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #include <memory.h>
 
 #include "entry_p.h"
 #include "input.h"
+#include "cmd.h"
 
 #include <bx/allocator.h>
 #include <bx/ringbuffer.h>
+#include <tinystl/string.h>
 #include <tinystl/allocator.h>
 #include <tinystl/unordered_map.h>
 namespace stl = tinystl;
 
-struct Mouse
+struct InputMouse
 {
-	Mouse()
+	InputMouse()
 		: m_width(1280)
 		, m_height(720)
 		, m_wheelDelta(120)
@@ -67,10 +69,10 @@ struct Mouse
 	bool m_lock;
 };
 
-struct Keyboard
+struct InputKeyboard
 {
-	Keyboard()
-		: m_ring(BX_COUNTOF(m_char) )
+	InputKeyboard()
+		: m_ring(BX_COUNTOF(m_char)-4)
 	{
 	}
 
@@ -88,16 +90,34 @@ struct Keyboard
 		return state;
 	}
 
-	static void decodeKeyState(uint32_t _state, uint8_t& _modifiers, bool& _down)
+	static bool decodeKeyState(uint32_t _state, uint8_t& _modifiers)
 	{
 		_modifiers = (_state>>16)&0xff;
-		_down = 0 != ( (_state>>8)&0xff);
+		return 0 != ( (_state>> 8)&0xff);
 	}
 
 	void setKeyState(entry::Key::Enum _key, uint8_t _modifiers, bool _down)
 	{
 		m_key[_key] = encodeKeyState(_modifiers, _down);
 		m_once[_key] = false;
+	}
+
+	bool getKeyState(entry::Key::Enum _key, uint8_t* _modifiers)
+	{
+		uint8_t modifiers;
+		_modifiers = NULL == _modifiers ? &modifiers : _modifiers;
+
+		return decodeKeyState(m_key[_key], *_modifiers);
+	}
+
+	uint8_t getModifiersState()
+	{
+		uint8_t modifiers = 0;
+		for (uint32_t ii = 0; ii < entry::Key::Count; ++ii)
+		{
+			modifiers |= (m_key[ii]>>16)&0xff;
+		}
+		return modifiers;
 	}
 
 	void pushChar(uint8_t _len, const uint8_t _char[4])
@@ -178,12 +198,12 @@ struct Input
 
 	void addBindings(const char* _name, const InputBinding* _bindings)
 	{
-		m_inputBindingsMap.insert(stl::make_pair(_name, _bindings) );
+		m_inputBindingsMap.insert(stl::make_pair(stl::string(_name), _bindings) );
 	}
 
 	void removeBindings(const char* _name)
 	{
-		InputBindingMap::iterator it = m_inputBindingsMap.find(_name);
+		InputBindingMap::iterator it = m_inputBindingsMap.find(stl::string(_name));
 		if (it != m_inputBindingsMap.end() )
 		{
 			m_inputBindingsMap.erase(it);
@@ -195,8 +215,7 @@ struct Input
 		for (const InputBinding* binding = _bindings; binding->m_key != entry::Key::None; ++binding)
 		{
 			uint8_t modifiers;
-			bool down;
-			Keyboard::decodeKeyState(m_keyboard.m_key[binding->m_key], modifiers, down);
+			bool down = InputKeyboard::decodeKeyState(m_keyboard.m_key[binding->m_key], modifiers);
 
 			if (binding->m_flags == 1)
 			{
@@ -205,7 +224,14 @@ struct Input
 					if (modifiers == binding->m_modifiers
 					&&  !m_keyboard.m_once[binding->m_key])
 					{
-						binding->m_fn(binding->m_userData);
+						if (NULL == binding->m_fn)
+						{
+							cmdExec( (const char*)binding->m_userData);
+						}
+						else
+						{
+							binding->m_fn(binding->m_userData);
+						}
 						m_keyboard.m_once[binding->m_key] = true;
 					}
 				}
@@ -219,7 +245,14 @@ struct Input
 				if (down
 				&&  modifiers == binding->m_modifiers)
 				{
-					binding->m_fn(binding->m_userData);
+					if (NULL == binding->m_fn)
+					{
+						cmdExec( (const char*)binding->m_userData);
+					}
+					else
+					{
+						binding->m_fn(binding->m_userData);
+					}
 				}
 			}
 		}
@@ -243,10 +276,10 @@ struct Input
 		}
 	}
 
-	typedef stl::unordered_map<const char*, const InputBinding*> InputBindingMap;
+	typedef stl::unordered_map<stl::string, const InputBinding*> InputBindingMap;
 	InputBindingMap m_inputBindingsMap;
-	Mouse m_mouse;
-	Keyboard m_keyboard;
+	InputKeyboard m_keyboard;
+	InputMouse m_mouse;
 	Gamepad m_gamepad[ENTRY_CONFIG_MAX_GAMEPADS];
 };
 
@@ -285,6 +318,16 @@ void inputSetMouseResolution(uint16_t _width, uint16_t _height)
 void inputSetKeyState(entry::Key::Enum _key, uint8_t _modifiers, bool _down)
 {
 	s_input->m_keyboard.setKeyState(_key, _modifiers, _down);
+}
+
+bool inputGetKeyState(entry::Key::Enum _key, uint8_t* _modifiers)
+{
+	return s_input->m_keyboard.getKeyState(_key, _modifiers);
+}
+
+uint8_t inputGetModifiersState()
+{
+	return s_input->m_keyboard.getModifiersState();
 }
 
 void inputChar(uint8_t _len, const uint8_t _char[4])

@@ -99,8 +99,10 @@ struct metal_print_context
 	, inoutStr(ralloc_strdup(buffer, ""))
 	, uniformStr(ralloc_strdup(buffer, ""))
 	, paramsStr(ralloc_strdup(buffer, ""))
+	, typedeclStr(ralloc_strdup(buffer, ""))
 	, writingParams(false)
 	, matrixCastsDone(false)
+	, matrixConstructorsDone(false)
 	, shadowSamplerDone(false)
 	, textureCounter(0)
 	, attributeCounter(0)
@@ -116,8 +118,10 @@ struct metal_print_context
 	string_buffer inoutStr;
 	string_buffer uniformStr;
 	string_buffer paramsStr;
+	string_buffer typedeclStr;
 	bool writingParams;
 	bool matrixCastsDone;
+	bool matrixConstructorsDone;
 	bool shadowSamplerDone;
 	int textureCounter;
 	int attributeCounter;
@@ -179,6 +183,7 @@ public:
 	virtual void visit(ir_end_primitive *);
 
 	void emit_assignment_part (ir_dereference* lhs, ir_rvalue* rhs, unsigned write_mask, ir_rvalue* dstIndex);
+	bool can_emit_canonical_for (loop_variable_state *ls);
 	bool emit_canonical_for (ir_loop* ir);
 
 	metal_print_context& ctx;
@@ -206,6 +211,7 @@ _mesa_print_ir_metal(exec_list *instructions,
 
 	// includes, prefix etc.
 	ctx.prefixStr.asprintf_append ("#include <metal_stdlib>\n");
+	ctx.prefixStr.asprintf_append ("#pragma clang diagnostic ignored \"-Wparentheses-equality\"\n");
 	ctx.prefixStr.asprintf_append ("using namespace metal;\n");
 
 	ctx.inputStr.asprintf_append("struct xlatMtlShaderInput {\n");
@@ -232,8 +238,10 @@ _mesa_print_ir_metal(exec_list *instructions,
 			// skip gl_ variables if they aren't used/assigned
 			if (strstr(var->name, "gl_") == var->name)
 			{
-				if (!var->data.used && !var->data.assigned)
-					continue;
+				if (NULL == strstr(var->name, "gl_FragData_") ) {
+					if (!var->data.used && !var->data.assigned)
+						continue;
+				}
 			}
 
 			//
@@ -261,7 +269,10 @@ _mesa_print_ir_metal(exec_list *instructions,
 			if (var->data.mode == ir_var_shader_inout)
 				strOut = &ctx.inoutStr;
 		}
-
+		
+		if (ir->ir_type == ir_type_typedecl) {
+			strOut = &ctx.typedeclStr;
+		}
 
 		ir_print_metal_visitor v (ctx, *strOut, &gtracker, mode, state);
 		v.loopstate = ls;
@@ -287,6 +298,8 @@ _mesa_print_ir_metal(exec_list *instructions,
 	ctx.uniformStr.asprintf_append("};\n");
 
 	// emit global array/struct constants
+	
+	ctx.prefixStr.asprintf_append("%s", ctx.typedeclStr.c_str());
 	foreach_in_list_safe(gconst_entry_metal, node, &gtracker.global_constants)
 	{
 		ir_constant* c = node->ir;
@@ -461,6 +474,8 @@ static void print_type_precision(string_buffer& buffer, const glsl_type *t, glsl
 		typeName = "depth2d<float>"; // depth type must always be float
 	else if (!strcmp(typeName, "samplerCubeShadow"))
 		typeName = "depthcube<float>"; // depth type must always be float
+	else if (!strcmp(typeName, "sampler2DArray"))
+		typeName = halfPrec ? "texture2d_array<half>" : "texture2d_array<float>";
 
 	if (t->base_type == GLSL_TYPE_ARRAY) {
 		print_type_precision(buffer, t->fields.array, prec, true);
@@ -550,7 +565,7 @@ void ir_print_metal_visitor::visit(ir_variable *ir)
 			hash_table_insert (globals->var_hash, (void*)id, ir);
 		}
 	}
-	
+
 	// auto/temp variables in global scope are postponed to main function
 	if (this->mode != kPrintGlslNone && (ir->data.mode == ir_var_auto || ir->data.mode == ir_var_temporary))
 	{
@@ -565,7 +580,8 @@ void ir_print_metal_visitor::visit(ir_variable *ir)
 	if (!inside_loop_body)
 	{
 		loop_variable_state* inductor_state = loopstate->get_for_inductor(ir);
-		if (inductor_state && inductor_state->private_induction_variable_count == 1)
+		if (inductor_state && inductor_state->private_induction_variable_count == 1 &&
+			can_emit_canonical_for(inductor_state))
 		{
 			skipped_this_ir = true;
 			return;
@@ -801,10 +817,10 @@ static const char *const operator_glsl_strs[] = {
 	"float",	// u2f
 	"int",		// i2u
 	"int",		// u2i
-	"float",	// bit i2f
-	"int",		// bit f2i
-	"float",	// bit u2f
-	"int",		// bit f2u
+	"as_type_",	// bit i2f
+	"as_type_",	// bit f2i
+	"as_type_",	// bit u2f
+	"as_type_",	// bit f2u
 	"any",
 	"trunc",
 	"ceil",
@@ -847,7 +863,7 @@ static const char *const operator_glsl_strs[] = {
 	"/",
 	"carry_TODO",
 	"borrow_TODO",
-	"mod",
+	"fmod",
 	"<",
 	">",
 	"<=",
@@ -938,20 +954,55 @@ void ir_print_metal_visitor::visit(ir_expression *ir)
 	bool op0cast = ir->operands[0] && is_different_precision(arg_prec, ir->operands[0]->get_precision());
 	bool op1cast = ir->operands[1] && is_different_precision(arg_prec, ir->operands[1]->get_precision());
 	bool op2cast = ir->operands[2] && is_different_precision(arg_prec, ir->operands[2]->get_precision());
+	const bool op0matrix = ir->operands[0] && ir->operands[0]->type->is_matrix();
+	const bool op1matrix = ir->operands[1] && ir->operands[1]->type->is_matrix();
+	bool op0castTo1 = false;
+	bool op1castTo0 = false;
 
 	// Metal does not support matrix precision casts, so when any of the arguments is a matrix,
 	// take precision from it. This isn't fully robust now, but oh well.
-	if (op0cast && ir->operands[0]->type->is_matrix() && !op1cast)
+	if (op0cast && op0matrix && !op1cast)
 	{
 		op0cast = false;
 		arg_prec = ir->operands[0]->get_precision();
 		op1cast = ir->operands[1] && is_different_precision(arg_prec, ir->operands[1]->get_precision());
 	}
-	if (op1cast && ir->operands[1]->type->is_matrix() && !op0cast)
+	if (op1cast && op1matrix && !op0cast)
 	{
 		op1cast = false;
 		arg_prec = ir->operands[1]->get_precision();
 		op0cast = ir->operands[0] && is_different_precision(arg_prec, ir->operands[0]->get_precision());
+	}
+
+	// Metal does not have matrix+scalar and matrix-scalar operations; we need to create matrices
+	// out of the non-matrix argument.
+	if (ir->operation == ir_binop_add || ir->operation == ir_binop_sub)
+	{
+		if (op0matrix && !op1matrix)
+		{
+			op1cast = true;
+			op1castTo0 = true;
+		}
+		if (op1matrix && !op0matrix)
+		{
+			op0cast = true;
+			op0castTo1 = true;
+		}
+		if (op1castTo0 || op0castTo1)
+		{
+			if (!ctx.matrixConstructorsDone)
+			{
+				ctx.prefixStr.asprintf_append(
+											  "inline float4x4 _xlinit_float4x4(float v) { return float4x4(float4(v), float4(v), float4(v), float4(v)); }\n"
+											  "inline float3x3 _xlinit_float3x3(float v) { return float3x3(float3(v), float3(v), float3(v)); }\n"
+											  "inline float2x2 _xlinit_float2x2(float v) { return float2x2(float2(v), float2(v)); }\n"
+											  "inline half4x4 _xlinit_half4x4(half v) { return half4x4(half4(v), half4(v), half4(v), half4(v)); }\n"
+											  "inline half3x3 _xlinit_half3x3(half v) { return half3x3(half3(v), half3(v), half3(v)); }\n"
+											  "inline half2x2 _xlinit_half2x2(half v) { return half2x2(half2(v), half2(v)); }\n"
+											  );
+				ctx.matrixConstructorsDone = true;
+			}
+		}
 	}
 	
 	const bool rescast = is_different_precision(arg_prec, res_prec) && !ir->type->is_boolean();
@@ -960,18 +1011,33 @@ void ir_print_metal_visitor::visit(ir_expression *ir)
 		buffer.asprintf_append ("(");
 		print_cast (buffer, res_prec, ir);
 	}
-	
+
 	if (ir->get_num_operands() == 1)
 	{
 		if (op0cast)
 			print_cast (buffer, arg_prec, ir->operands[0]);
-		if (ir->operation >= ir_unop_f2i && ir->operation < ir_unop_any) {
+		if (ir->operation >= ir_unop_f2i && ir->operation <= ir_unop_u2i) {
 			print_type(buffer, ir, ir->type, true);
 			buffer.asprintf_append ("(");
+		} else if (ir->operation >= ir_unop_bitcast_i2f && ir->operation <= ir_unop_bitcast_f2u) {
+			buffer.asprintf_append("as_type<");
+			print_type(buffer, ir, ir->type, true);
+			buffer.asprintf_append(">(");
 		} else if (ir->operation == ir_unop_rcp) {
-			buffer.asprintf_append ("(1.0/(");
+			const bool halfCast = (arg_prec == glsl_precision_medium || arg_prec == glsl_precision_low);
+			buffer.asprintf_append (halfCast ? "((half)1.0/(" : "(1.0/(");
 		} else {
-			buffer.asprintf_append ("%s(", operator_glsl_strs[ir->operation]);
+			switch(ir->operation) {
+				case ir_unop_dFdy:
+				case ir_unop_dFdy_coarse:
+				case ir_unop_dFdy_fine:
+					buffer.asprintf_append ("%s(-", operator_glsl_strs[ir->operation]);
+					break;
+
+				default:
+					buffer.asprintf_append ("%s(", operator_glsl_strs[ir->operation]);
+					break;
+			}
 		}
 		if (ir->operands[0])
 			ir->operands[0]->accept(this);
@@ -983,7 +1049,7 @@ void ir_print_metal_visitor::visit(ir_expression *ir)
 	else if (ir->operation == ir_binop_vector_extract)
 	{
 		// a[b]
-		
+
 		if (ir->operands[0])
 			ir->operands[0]->accept(this);
 		buffer.asprintf_append ("[");
@@ -993,6 +1059,7 @@ void ir_print_metal_visitor::visit(ir_expression *ir)
 	}
 	else if (is_binop_func_like(ir->operation, ir->type))
 	{
+		// binary operation that must be printed like a function, "foo(a,b)"
 		if (ir->operation == ir_binop_mod)
 		{
 			buffer.asprintf_append ("(");
@@ -1000,7 +1067,7 @@ void ir_print_metal_visitor::visit(ir_expression *ir)
 			buffer.asprintf_append ("(");
 		}
 		buffer.asprintf_append ("%s (", operator_glsl_strs[ir->operation]);
-		
+
 		if (ir->operands[0])
 		{
 			if (op0cast)
@@ -1018,23 +1085,58 @@ void ir_print_metal_visitor::visit(ir_expression *ir)
 		if (ir->operation == ir_binop_mod)
             buffer.asprintf_append ("))");
 	}
+	else if (ir->get_num_operands() == 2 && ir->operation == ir_binop_div && op0matrix && !op1matrix)
+	{
+		// "matrix/scalar" - Metal does not have it, so print multiply by inverse instead
+		buffer.asprintf_append ("(");
+		ir->operands[0]->accept(this);
+		const bool halfCast = (arg_prec == glsl_precision_medium || arg_prec == glsl_precision_low);
+		buffer.asprintf_append (halfCast ? " * (1.0h/half(" : " * (1.0/(");
+		ir->operands[1]->accept(this);
+		buffer.asprintf_append (")))");
+	}
 	else if (ir->get_num_operands() == 2)
 	{
+		// regular binary operator
 		buffer.asprintf_append ("(");
 		if (ir->operands[0])
 		{
-			if (op0cast)
+			if (op0castTo1)
+			{
+				buffer.asprintf_append ("_xlinit_");
+				print_type_precision(buffer, ir->operands[1]->type, arg_prec, false);
+				buffer.asprintf_append ("(");
+			}
+			else if (op0cast)
+			{
 				print_cast (buffer, arg_prec, ir->operands[0]);
+			}
 			ir->operands[0]->accept(this);
+			if (op0castTo1)
+			{
+				buffer.asprintf_append (")");
+			}
 		}
 
 		buffer.asprintf_append (" %s ", operator_glsl_strs[ir->operation]);
 
 		if (ir->operands[1])
 		{
-			if (op1cast)
+			if (op1castTo0)
+			{
+				buffer.asprintf_append ("_xlinit_");
+				print_type_precision(buffer, ir->operands[0]->type, arg_prec, false);
+				buffer.asprintf_append ("(");
+			}
+			else if (op1cast)
+			{
 				print_cast (buffer, arg_prec, ir->operands[1]);
+			}
 			ir->operands[1]->accept(this);
+			if (op1castTo0)
+			{
+				buffer.asprintf_append (")");
+			}
 		}
 		buffer.asprintf_append (")");
 	}
@@ -1064,13 +1166,13 @@ void ir_print_metal_visitor::visit(ir_expression *ir)
 		}
 		buffer.asprintf_append (")");
 	}
-	
+
 	if (rescast)
 	{
 		buffer.asprintf_append (")");
 	}
-	
-	
+
+
 	newline_deindent();
 	--this->expression_depth;
 }
@@ -1080,16 +1182,25 @@ static int tex_sampler_dim_size[] = {
 };
 
 
-static void print_texture_uv (ir_print_metal_visitor* vis, ir_texture* ir, bool is_shadow, bool is_proj, int uv_dim, int sampler_uv_dim)
+static void print_texture_uv (ir_print_metal_visitor* vis, ir_texture* ir, bool is_shadow, bool is_proj, bool is_array, int uv_dim, int sampler_uv_dim)
 {
 	if (!is_shadow)
 	{
-		if (!is_proj)
+		if (!is_proj && !is_array)
 		{
 			// regular UV
 			vis->buffer.asprintf_append (sampler_uv_dim == 3 ? "(float3)(" : "(float2)(");
 			ir->coordinate->accept(vis);
 			vis->buffer.asprintf_append (")");
+		}
+		else if (is_array)
+		{
+			// array sample
+			vis->buffer.asprintf_append ("(float2)((");
+			ir->coordinate->accept(vis);
+			vis->buffer.asprintf_append (").xy), (uint)((");
+			ir->coordinate->accept(vis);
+			vis->buffer.asprintf_append (").z)");
 		}
 		else
 		{
@@ -1132,13 +1243,14 @@ void ir_print_metal_visitor::visit(ir_texture *ir)
 {
 	glsl_sampler_dim sampler_dim = (glsl_sampler_dim)ir->sampler->type->sampler_dimensionality;
 	const bool is_shadow = ir->sampler->type->sampler_shadow;
+	const bool is_array = ir->sampler->type->sampler_array;
 	const glsl_type* uv_type = ir->coordinate->type;
 	const int uv_dim = uv_type->vector_elements;
 	int sampler_uv_dim = tex_sampler_dim_size[sampler_dim];
 	if (is_shadow)
 		sampler_uv_dim += 1;
-	const bool is_proj = (uv_dim > sampler_uv_dim);
-	
+	const bool is_proj = (uv_dim > sampler_uv_dim) && !is_array;
+
 	// texture name & call to sample
 	ir->sampler->accept(this);
 	if (is_shadow)
@@ -1159,7 +1271,7 @@ void ir_print_metal_visitor::visit(ir_texture *ir)
 	buffer.asprintf_append (", ");
 
 	// texture coordinate
-	print_texture_uv (this, ir, is_shadow, is_proj, uv_dim, sampler_uv_dim);
+	print_texture_uv (this, ir, is_shadow, is_proj, is_array, uv_dim, sampler_uv_dim);
 
 	// lod bias
 	if (ir->op == ir_txb)
@@ -1168,7 +1280,7 @@ void ir_print_metal_visitor::visit(ir_texture *ir)
 		ir->lod_info.bias->accept(this);
 		buffer.asprintf_append (")");
 	}
-	
+
 	// lod
 	if (ir->op == ir_txl)
 	{
@@ -1176,7 +1288,7 @@ void ir_print_metal_visitor::visit(ir_texture *ir)
 		ir->lod_info.lod->accept(this);
 		buffer.asprintf_append (")");
 	}
-	
+
 	// grad
 	if (ir->op == ir_txd)
 	{
@@ -1195,7 +1307,7 @@ void ir_print_metal_visitor::visit(ir_texture *ir)
 		ir->lod_info.grad.dPdy->accept(this);
 		buffer.asprintf_append ("))");
 	}
-	
+
 	//@TODO: texelFetch
 	//@TODO: projected
 	//@TODO: shadowmaps
@@ -1224,7 +1336,7 @@ void ir_print_metal_visitor::visit(ir_swizzle *ir)
 	}
 
 	ir->val->accept(this);
-	
+
 	if (ir->val->type == glsl_type::float_type || ir->val->type == glsl_type::int_type)
 	{
 		if (ir->mask.num_components != 1)
@@ -1304,11 +1416,11 @@ void ir_print_metal_visitor::emit_assignment_part (ir_dereference* lhs, ir_rvalu
 			dstIndex->accept(this);
 			buffer.asprintf_append ("]");
 		}
-		
+
 		if (lhsType->matrix_columns <= 1 && lhsType->vector_elements > 1)
 			lhsType = glsl_type::get_instance(lhsType->base_type, 1, 1);
 	}
-	
+
 	char mask[5];
 	unsigned j = 0;
 	const glsl_type* rhsType = rhs->type;
@@ -1329,11 +1441,11 @@ void ir_print_metal_visitor::emit_assignment_part (ir_dereference* lhs, ir_rvalu
 		buffer.asprintf_append (".%s", mask);
 		hasWriteMask = true;
 	}
-	
+
 	buffer.asprintf_append (" = ");
-	
+
 	const bool typeMismatch = !dstIndex && (lhsType != rhsType);
-	
+
 	const bool precMismatch = is_different_precision (lhs->get_precision(), rhs->get_precision());
 	const bool addSwizzle = hasWriteMask && typeMismatch;
 	if (typeMismatch || precMismatch)
@@ -1362,9 +1474,9 @@ void ir_print_metal_visitor::emit_assignment_part (ir_dereference* lhs, ir_rvalu
 		}
 		buffer.asprintf_append ("(");
 	}
-	
+
 	rhs->accept(this);
-	
+
 	if (typeMismatch || precMismatch)
 	{
 		buffer.asprintf_append (")");
@@ -1414,11 +1526,11 @@ static bool try_print_increment (ir_print_metal_visitor* vis, ir_assignment* ir)
 	// print variable name
 	const bool prev_lhs_flag = vis->inside_lhs;
 	vis->inside_lhs = true;
-	
+
 	ir->lhs->accept (vis);
-	
+
 	vis->inside_lhs = prev_lhs_flag;
-	
+
 
 	// print ++ or +=const
 	if (ir->lhs->type->base_type <= GLSL_TYPE_INT && rhsConst->is_one())
@@ -1445,7 +1557,8 @@ void ir_print_metal_visitor::visit(ir_assignment *ir)
 		if (!ir->condition && whole_var)
 		{
 			loop_variable_state* inductor_state = loopstate->get_for_inductor(whole_var);
-			if (inductor_state && inductor_state->private_induction_variable_count == 1)
+			if (inductor_state && inductor_state->private_induction_variable_count == 1 &&
+				can_emit_canonical_for(inductor_state))
 			{
 				skipped_this_ir = true;
 				return;
@@ -1499,46 +1612,6 @@ void ir_print_metal_visitor::visit(ir_assignment *ir)
 	}
 
 	emit_assignment_part (ir->lhs, ir->rhs, ir->write_mask, NULL);
-}
-
-static void print_float (string_buffer& buffer, float f)
-{
-	// Kind of roundabout way, but this is to satisfy two things:
-	// * MSVC and gcc-based compilers differ a bit in how they treat float
-	//   widht/precision specifiers. Want to match for tests.
-	// * GLSL (early version at least) require floats to have ".0" or
-	//   exponential notation.
-	char tmp[64];
-	snprintf(tmp, 64, "%.6g", f);
-
-	char* posE = NULL;
-	posE = strchr(tmp, 'e');
-	if (!posE)
-		posE = strchr(tmp, 'E');
-
-	#if defined(_MSC_VER)
-	// While gcc would print something like 1.0e+07, MSVC will print 1.0e+007 -
-	// only for exponential notation, it seems, will add one extra useless zero. Let's try to remove
-	// that so compiler output matches.
-	if (posE != NULL)
-	{
-		if((posE[1] == '+' || posE[1] == '-') && posE[2] == '0')
-		{
-			char* p = posE+2;
-			while (p[0])
-			{
-				p[0] = p[1];
-				++p;
-			}
-		}
-	}
-	#endif
-
-	buffer.asprintf_append ("%s", tmp);
-
-	// need to append ".0"?
-	if (!strchr(tmp,'.') && (posE == NULL))
-		buffer.asprintf_append(".0");
 }
 
 void ir_print_metal_visitor::visit(ir_constant *ir)
@@ -1715,9 +1788,8 @@ ir_print_metal_visitor::visit(ir_if *ir)
 }
 
 
-bool ir_print_metal_visitor::emit_canonical_for (ir_loop* ir)
+bool ir_print_metal_visitor::can_emit_canonical_for (loop_variable_state *ls)
 {
-	loop_variable_state* const ls = this->loopstate->get(ir);
 	if (ls == NULL)
 		return false;
 
@@ -1730,6 +1802,16 @@ bool ir_print_metal_visitor::emit_canonical_for (ir_loop* ir)
 	// only support for loops with one terminator condition
 	int terminatorCount = ls->terminators.length();
 	if (terminatorCount != 1)
+		return false;
+
+	return true;
+}
+
+bool ir_print_metal_visitor::emit_canonical_for (ir_loop* ir)
+{
+	loop_variable_state* const ls = this->loopstate->get(ir);
+
+	if (!can_emit_canonical_for(ls))
 		return false;
 
 	hash_table* terminator_hash = hash_table_ctor(0, hash_table_pointer_hash, hash_table_pointer_compare);
@@ -1893,7 +1975,7 @@ ir_print_metal_visitor::visit(ir_typedecl_statement *ir)
 		buffer.asprintf_append ("  ");
 		//if (state->es_shader)
 		//	buffer.asprintf_append ("%s", get_precision_string(s->fields.structure[j].precision)); //@TODO
-		print_type(buffer, ir, s->fields.structure[j].type, false);
+		print_type_precision(buffer, s->fields.structure[j].type, s->fields.structure[j].precision, false);
 		buffer.asprintf_append (" %s", s->fields.structure[j].name);
 		print_type_post(buffer, s->fields.structure[j].type, false);
 		buffer.asprintf_append (";\n");

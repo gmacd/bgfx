@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2015 Branimir Karadzic. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * Copyright 2011-2016 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #include <string.h> // strlen
@@ -12,20 +12,31 @@
 #include <tinystl/string.h>
 namespace stl = tinystl;
 
-#include <bgfx.h>
-#include <bx/readerwriter.h>
+#include <bgfx/bgfx.h>
+#include <bx/commandline.h>
+#include <bx/endian.h>
 #include <bx/fpumath.h>
+#include <bx/readerwriter.h>
+#include <bx/string.h>
 #include "entry/entry.h"
 #include <ib-compress/indexbufferdecompression.h>
 
+#define LODEPNG_NO_COMPILE_ENCODER
+#define LODEPNG_NO_COMPILE_DISK
+#define LODEPNG_NO_COMPILE_ANCILLARY_CHUNKS
+#define LODEPNG_NO_COMPILE_ERROR_TEXT
+#define LODEPNG_NO_COMPILE_ALLOCATORS
+#define LODEPNG_NO_COMPILE_CPP
+#include <lodepng/lodepng.h>
+
 #include "bgfx_utils.h"
 
-void* load(bx::FileReaderI* _reader, const char* _filePath, uint32_t* _size)
+void* load(bx::FileReaderI* _reader, bx::AllocatorI* _allocator, const char* _filePath, uint32_t* _size)
 {
-	if (0 == bx::open(_reader, _filePath) )
+	if (bx::open(_reader, _filePath) )
 	{
 		uint32_t size = (uint32_t)bx::getSize(_reader);
-		void* data = malloc(size);
+		void* data = BX_ALLOC(_allocator, size);
 		bx::read(_reader, data, size);
 		bx::close(_reader);
 		if (NULL != _size)
@@ -34,22 +45,32 @@ void* load(bx::FileReaderI* _reader, const char* _filePath, uint32_t* _size)
 		}
 		return data;
 	}
+	else
+	{
+		DBG("Failed to open: %s.", _filePath);
+	}
 
 	if (NULL != _size)
 	{
 		*_size = 0;
 	}
+
 	return NULL;
 }
 
 void* load(const char* _filePath, uint32_t* _size)
 {
-	return load(entry::getFileReader(), _filePath, _size);
+	return load(entry::getFileReader(), entry::getAllocator(), _filePath, _size);
+}
+
+void unload(void* _ptr)
+{
+	BX_FREE(entry::getAllocator(), _ptr);
 }
 
 static const bgfx::Memory* loadMem(bx::FileReaderI* _reader, const char* _filePath)
 {
-	if (0 == bx::open(_reader, _filePath) )
+	if (bx::open(_reader, _filePath) )
 	{
 		uint32_t size = (uint32_t)bx::getSize(_reader);
 		const bgfx::Memory* mem = bgfx::alloc(size+1);
@@ -59,6 +80,27 @@ static const bgfx::Memory* loadMem(bx::FileReaderI* _reader, const char* _filePa
 		return mem;
 	}
 
+	DBG("Failed to load %s.", _filePath);
+	return NULL;
+}
+
+static void* loadMem(bx::FileReaderI* _reader, bx::AllocatorI* _allocator, const char* _filePath, uint32_t* _size)
+{
+	if (bx::open(_reader, _filePath) )
+	{
+		uint32_t size = (uint32_t)bx::getSize(_reader);
+		void* data = BX_ALLOC(_allocator, size);
+		bx::read(_reader, data, size);
+		bx::close(_reader);
+
+		if (NULL != _size)
+		{
+			*_size = size;
+		}
+		return data;
+	}
+
+	DBG("Failed to load %s.", _filePath);
 	return NULL;
 }
 
@@ -77,6 +119,10 @@ static bgfx::ShaderHandle loadShader(bx::FileReaderI* _reader, const char* _name
 
 	case bgfx::RendererType::OpenGL:
 		shaderPath = "shaders/glsl/";
+		break;
+
+	case bgfx::RendererType::Metal:
+		shaderPath = "shaders/metal/";
 		break;
 
 	case bgfx::RendererType::OpenGLES:
@@ -102,7 +148,11 @@ bgfx::ShaderHandle loadShader(const char* _name)
 bgfx::ProgramHandle loadProgram(bx::FileReaderI* _reader, const char* _vsName, const char* _fsName)
 {
 	bgfx::ShaderHandle vsh = loadShader(_reader, _vsName);
-	bgfx::ShaderHandle fsh = loadShader(_reader, _fsName);
+	bgfx::ShaderHandle fsh = BGFX_INVALID_HANDLE;
+	if (NULL != _fsName)
+	{
+		fsh = loadShader(_reader, _fsName);
+	}
 
 	return bgfx::createProgram(vsh, fsh, true /* destroy shaders when program is destroyed */);
 }
@@ -112,15 +162,177 @@ bgfx::ProgramHandle loadProgram(const char* _vsName, const char* _fsName)
 	return loadProgram(entry::getFileReader(), _vsName, _fsName);
 }
 
-bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _name, uint32_t _flags, uint8_t _skip, bgfx::TextureInfo* _info)
+typedef unsigned char stbi_uc;
+extern "C" stbi_uc* stbi_load_from_memory(stbi_uc const* _buffer, int _len, int* _x, int* _y, int* _comp, int _req_comp);
+extern "C" void stbi_image_free(void* _ptr);
+extern void lodepng_free(void* _ptr);
+
+bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath, uint32_t _flags, uint8_t _skip, bgfx::TextureInfo* _info)
 {
-	char filePath[512];
-	strcpy(filePath, "textures/");
-	strcat(filePath, _name);
+	if (NULL != bx::stristr(_filePath, ".dds")
+	||  NULL != bx::stristr(_filePath, ".pvr")
+	||  NULL != bx::stristr(_filePath, ".ktx") )
+	{
+		const bgfx::Memory* mem = loadMem(_reader, _filePath);
+		if (NULL != mem)
+		{
+			return bgfx::createTexture(mem, _flags, _skip, _info);
+		}
 
-	const bgfx::Memory* mem = loadMem(_reader, filePath);
+		bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
+		DBG("Failed to load %s.", _filePath);
+		return handle;
+	}
 
-	return bgfx::createTexture(mem, _flags, _skip, _info);
+	bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
+	bx::AllocatorI* allocator = entry::getAllocator();
+
+	uint32_t size = 0;
+	void* data = loadMem(_reader, allocator, _filePath, &size);
+	if (NULL != data)
+	{
+		bgfx::TextureFormat::Enum format = bgfx::TextureFormat::RGBA8;
+		uint32_t bpp = 32;
+
+		uint32_t width  = 0;
+		uint32_t height = 0;
+
+		typedef void (*ReleaseFn)(void* _ptr);
+		ReleaseFn release = stbi_image_free;
+
+		uint8_t* out = NULL;
+		static uint8_t pngMagic[] = { 0x89, 0x50, 0x4E, 0x47, 0x0d, 0x0a };
+		if (0 == memcmp(data, pngMagic, sizeof(pngMagic) ) )
+		{
+			release = lodepng_free;
+
+			unsigned error;
+			LodePNGState state;
+			lodepng_state_init(&state);
+			state.decoder.color_convert = 0;
+			error = lodepng_decode(&out, &width, &height, &state, (uint8_t*)data, size);
+
+			if (0 == error)
+			{
+				switch (state.info_raw.bitdepth)
+				{
+				case 8:
+					switch (state.info_raw.colortype)
+					{
+					case LCT_GREY:
+						format = bgfx::TextureFormat::R8;
+						bpp    = 8;
+						break;
+
+					case LCT_GREY_ALPHA:
+						format = bgfx::TextureFormat::RG8;
+						bpp    = 16;
+						break;
+
+					case LCT_RGB:
+						format = bgfx::TextureFormat::RGB8;
+						bpp    = 24;
+						break;
+
+					case LCT_RGBA:
+						format = bgfx::TextureFormat::RGBA8;
+						bpp    = 32;
+						break;
+
+					case LCT_PALETTE:
+						format = bgfx::TextureFormat::R8;
+						bpp    = 8;
+						break;
+					}
+					break;
+
+				case 16:
+					switch (state.info_raw.colortype)
+					{
+					case LCT_GREY:
+						for (uint32_t ii = 0, num = width*height; ii < num; ++ii)
+						{
+							uint16_t* rgba = (uint16_t*)out + ii*4;
+							rgba[0] = bx::toHostEndian(rgba[0], false);
+						}
+						format = bgfx::TextureFormat::R16;
+						bpp    = 16;
+						break;
+
+					case LCT_GREY_ALPHA:
+						for (uint32_t ii = 0, num = width*height; ii < num; ++ii)
+						{
+							uint16_t* rgba = (uint16_t*)out + ii*4;
+							rgba[0] = bx::toHostEndian(rgba[0], false);
+							rgba[1] = bx::toHostEndian(rgba[1], false);
+						}
+						format = bgfx::TextureFormat::R16;
+						bpp    = 16;
+						break;
+
+					case LCT_RGBA:
+						for (uint32_t ii = 0, num = width*height; ii < num; ++ii)
+						{
+							uint16_t* rgba = (uint16_t*)out + ii*4;
+							rgba[0] = bx::toHostEndian(rgba[0], false);
+							rgba[1] = bx::toHostEndian(rgba[1], false);
+							rgba[2] = bx::toHostEndian(rgba[2], false);
+							rgba[3] = bx::toHostEndian(rgba[3], false);
+						}
+						format = bgfx::TextureFormat::RGBA16;
+						bpp    = 64;
+						break;
+
+					case LCT_RGB:
+					case LCT_PALETTE:
+						break;
+					}
+					break;
+
+				default:
+					break;
+				}
+			}
+
+			lodepng_state_cleanup(&state);
+		}
+		else
+		{
+			int comp = 0;
+			out = stbi_load_from_memory( (uint8_t*)data, size, (int*)&width, (int*)&height, &comp, 4);
+		}
+
+		BX_FREE(allocator, data);
+
+		if (NULL != out)
+		{
+			handle = bgfx::createTexture2D(uint16_t(width), uint16_t(height), false, 1
+											, format
+											, _flags
+											, bgfx::copy(out, width*height*bpp/8)
+											);
+			release(out);
+
+			if (NULL != _info)
+			{
+				bgfx::calcTextureSize(*_info
+					, uint16_t(width)
+					, uint16_t(height)
+					, 0
+					, false
+					, false
+					, 1
+					, format
+					);
+			}
+		}
+	}
+	else
+	{
+		DBG("Failed to load %s.", _filePath);
+	}
+
+	return handle;
 }
 
 bgfx::TextureHandle loadTexture(const char* _name, uint32_t _flags, uint8_t _skip, bgfx::TextureInfo* _info)
@@ -284,7 +496,7 @@ struct Group
 
 namespace bgfx
 {
-	int32_t read(bx::ReaderI* _reader, bgfx::VertexDecl& _decl);
+	int32_t read(bx::ReaderI* _reader, bgfx::VertexDecl& _decl, bx::Error* _err = NULL);
 }
 
 struct Mesh
@@ -301,10 +513,12 @@ struct Mesh
 
 		Group group;
 
-		bx::ReallocatorI* allocator = entry::getAllocator();
+		bx::AllocatorI* allocator = entry::getAllocator();
 
 		uint32_t chunk;
-		while (4 == bx::read(_reader, chunk) )
+		bx::Error err;
+		while (4 == bx::read(_reader, chunk, &err)
+		&&     err.isOk() )
 		{
 			switch (chunk)
 			{
@@ -433,18 +647,16 @@ struct Mesh
 				;
 		}
 
-		uint32_t cached = bgfx::setTransform(_mtx);
+		bgfx::setTransform(_mtx);
+		bgfx::setState(_state);
 
 		for (GroupArray::const_iterator it = m_groups.begin(), itEnd = m_groups.end(); it != itEnd; ++it)
 		{
 			const Group& group = *it;
 
-			bgfx::setTransform(cached);
-			bgfx::setProgram(_program);
 			bgfx::setIndexBuffer(group.m_ibh);
 			bgfx::setVertexBuffer(group.m_vbh);
-			bgfx::setState(_state);
-			bgfx::submit(_id);
+			bgfx::submit(_id, _program, 0, it != itEnd-1);
 		}
 	}
 
@@ -454,27 +666,28 @@ struct Mesh
 
 		for (uint32_t pass = 0; pass < _numPasses; ++pass)
 		{
+			bgfx::setTransform(cached, _numMatrices);
+
 			const MeshState& state = *_state[pass];
+			bgfx::setState(state.m_state);
+
+			for (uint8_t tex = 0; tex < state.m_numTextures; ++tex)
+			{
+				const MeshState::Texture& texture = state.m_textures[tex];
+				bgfx::setTexture(texture.m_stage
+						, texture.m_sampler
+						, texture.m_texture
+						, texture.m_flags
+						);
+			}
 
 			for (GroupArray::const_iterator it = m_groups.begin(), itEnd = m_groups.end(); it != itEnd; ++it)
 			{
 				const Group& group = *it;
 
-				bgfx::setTransform(cached, _numMatrices);
-				for (uint8_t tex = 0; tex < state.m_numTextures; ++tex)
-				{
-					const MeshState::Texture& texture = state.m_textures[tex];
-					bgfx::setTexture(texture.m_stage
-							, texture.m_sampler
-							, texture.m_texture
-							, texture.m_flags
-							);
-				}
-				bgfx::setProgram(state.m_program);
 				bgfx::setIndexBuffer(group.m_ibh);
 				bgfx::setVertexBuffer(group.m_vbh);
-				bgfx::setState(state.m_state);
-				bgfx::submit(state.m_viewId);
+				bgfx::submit(state.m_viewId, state.m_program, 0, it != itEnd-1);
 			}
 		}
 	}
@@ -494,10 +707,14 @@ Mesh* meshLoad(bx::ReaderSeekerI* _reader)
 Mesh* meshLoad(const char* _filePath)
 {
 	bx::FileReaderI* reader = entry::getFileReader();
-	bx::open(reader, _filePath);
-	Mesh* mesh = meshLoad(reader);
-	bx::close(reader);
-	return mesh;
+	if (bx::open(reader, _filePath) )
+	{
+		Mesh* mesh = meshLoad(reader);
+		bx::close(reader);
+		return mesh;
+	}
+
+	return NULL;
 }
 
 void meshUnload(Mesh* _mesh)
@@ -525,4 +742,63 @@ void meshSubmit(const Mesh* _mesh, uint8_t _id, bgfx::ProgramHandle _program, co
 void meshSubmit(const Mesh* _mesh, const MeshState*const* _state, uint8_t _numPasses, const float* _mtx, uint16_t _numMatrices)
 {
 	_mesh->submit(_state, _numPasses, _mtx, _numMatrices);
+}
+
+Args::Args(int _argc, char** _argv)
+	: m_type(bgfx::RendererType::Count)
+	, m_pciId(BGFX_PCI_ID_NONE)
+{
+	bx::CommandLine cmdLine(_argc, (const char**)_argv);
+
+	if (cmdLine.hasArg("gl") )
+	{
+		m_type = bgfx::RendererType::OpenGL;
+	}
+	else if (cmdLine.hasArg("vk") )
+	{
+		m_type = bgfx::RendererType::Vulkan;
+	}
+	else if (cmdLine.hasArg("noop") )
+	{
+		m_type = bgfx::RendererType::Null;
+	}
+	else if (BX_ENABLED(BX_PLATFORM_WINDOWS) )
+	{
+		if (cmdLine.hasArg("d3d9") )
+		{
+			m_type = bgfx::RendererType::Direct3D9;
+		}
+		else if (cmdLine.hasArg("d3d11") )
+		{
+			m_type = bgfx::RendererType::Direct3D11;
+		}
+		else if (cmdLine.hasArg("d3d12") )
+		{
+			m_type = bgfx::RendererType::Direct3D12;
+		}
+	}
+	else if (BX_ENABLED(BX_PLATFORM_OSX) )
+	{
+		if (cmdLine.hasArg("mtl") )
+		{
+			m_type = bgfx::RendererType::Metal;
+		}
+	}
+
+	if (cmdLine.hasArg("amd") )
+	{
+		m_pciId = BGFX_PCI_ID_AMD;
+	}
+	else if (cmdLine.hasArg("nvidia") )
+	{
+		m_pciId = BGFX_PCI_ID_NVIDIA;
+	}
+	else if (cmdLine.hasArg("intel") )
+	{
+		m_pciId = BGFX_PCI_ID_INTEL;
+	}
+	else if (cmdLine.hasArg("sw") )
+	{
+		m_pciId = BGFX_PCI_ID_SOFTWARE_RASTERIZER;
+	}
 }

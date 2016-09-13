@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2015 Branimir Karadzic. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * Copyright 2011-2016 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #include <algorithm>
@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <bgfx.h>
+#include <bgfx/bgfx.h>
 #include "../../src/vertexdecl.h"
 
 #include <tinystl/allocator.h>
@@ -58,11 +58,11 @@ namespace stl = tinystl;
 #include <bx/debug.h>
 #include <bx/commandline.h>
 #include <bx/timer.h>
-#include <bx/readerwriter.h>
 #include <bx/hash.h>
 #include <bx/uint32_t.h>
 #include <bx/fpumath.h>
 #include <bx/tokenizecmd.h>
+#include <bx/crtimpl.h>
 
 #include "bounds.h"
 
@@ -81,6 +81,7 @@ struct Index3
 	int32_t m_texcoord;
 	int32_t m_normal;
 	int32_t m_vertexIndex;
+	int32_t m_vbc; // Barycentric ID. Holds eigher 0, 1 or 2.
 };
 
 typedef stl::unordered_map<uint64_t, Index3> Index3Map;
@@ -359,8 +360,8 @@ void help(const char* _error = NULL)
 
 	fprintf(stderr
 		, "geometryc, bgfx geometry compiler tool\n"
-		  "Copyright 2011-2015 Branimir Karadzic. All rights reserved.\n"
-		  "License: http://www.opensource.org/licenses/BSD-2-Clause\n\n"
+		  "Copyright 2011-2016 Branimir Karadzic. All rights reserved.\n"
+		  "License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause\n\n"
 		);
 
 	fprintf(stderr
@@ -368,7 +369,7 @@ void help(const char* _error = NULL)
 
 		  "\n"
 		  "Supported input file types:\n"
-		  "    *.obj                    Wavefront\n"
+		  "    *.obj                  Wavefront\n"
 
 		  "\n"
 		  "Options:\n"
@@ -387,6 +388,7 @@ void help(const char* _error = NULL)
 		  "           0 - unpacked 8 bytes (default).\n"
 		  "           1 - packed 4 bytes.\n"
 		  "      --tangent            Calculate tangent vectors (packing mode is the same as normal).\n"
+		  "      --barycentric        Adds barycentric vertex attribute (packed in bgfx::Attrib::Color1).\n"
 		  "  -c, --compress           Compress indices.\n"
 
 		  "\n"
@@ -450,6 +452,7 @@ int main(int _argc, const char* _argv[])
 	bool ccw = cmdLine.hasArg("ccw");
 	bool flipV = cmdLine.hasArg("flipv");
 	bool hasTangent = cmdLine.hasArg("tangent");
+	bool hasBc = cmdLine.hasArg("barycentric");
 
 	FILE* file = fopen(filePath, "r");
 	if (NULL == file)
@@ -504,14 +507,25 @@ int main(int _argc, const char* _argv[])
 				Triangle triangle;
 				memset(&triangle, 0, sizeof(Triangle) );
 
+				const int numNormals   = (int)normals.size();
+				const int numTexcoords = (int)texcoords.size();
+				const int numPositions = (int)positions.size();
 				for (uint32_t edge = 0, numEdges = argc-1; edge < numEdges; ++edge)
 				{
 					Index3 index;
 					index.m_texcoord = -1;
 					index.m_normal = -1;
 					index.m_vertexIndex = -1;
+					if (hasBc)
+					{
+						index.m_vbc = edge < 3 ? edge : (1+(edge+1) )&1;
+					}
+					else
+					{
+						index.m_vbc = 0;
+					}
 
-					char* vertex = argv[edge+1];
+					char* vertex   = argv[edge+1];
 					char* texcoord = strchr(vertex, '/');
 					if (NULL != texcoord)
 					{
@@ -521,18 +535,26 @@ int main(int _argc, const char* _argv[])
 						if (NULL != normal)
 						{
 							*normal++ = '\0';
-							index.m_normal = atoi(normal)-1;
+							const int nn = atoi(normal);
+							index.m_normal = (nn < 0) ? nn+numNormals : nn-1;
 						}
 
-						index.m_texcoord = atoi(texcoord)-1;
+						// https://en.wikipedia.org/wiki/Wavefront_.obj_file#Vertex_Normal_Indices_Without_Texture_Coordinate_Indices
+						if(*texcoord != '\0')
+						{
+							const int tex = atoi(texcoord);
+							index.m_texcoord = (tex < 0) ? tex+numTexcoords : tex-1;
+						}
 					}
 
-					index.m_position = atoi(vertex)-1;
+					const int pos = atoi(vertex);
+					index.m_position = (pos < 0) ? pos+numPositions : pos-1;
 
 					uint64_t hash0 = index.m_position;
 					uint64_t hash1 = uint64_t(index.m_texcoord)<<20;
 					uint64_t hash2 = uint64_t(index.m_normal)<<40;
-					uint64_t hash = hash0^hash1^hash2;
+					uint64_t hash3 = uint64_t(index.m_vbc)<<60;
+					uint64_t hash = hash0^hash1^hash2^hash3;
 
 					stl::pair<Index3Map::iterator, bool> result = indexMap.insert(stl::make_pair(hash, index) );
 					if (!result.second)
@@ -710,7 +732,7 @@ int main(int _argc, const char* _argv[])
 	bool hasTexcoord;
 	{
 		Index3Map::const_iterator it = indexMap.begin();
-		hasNormal = -1 != it->second.m_normal;
+		hasNormal   = -1 != it->second.m_normal;
 		hasTexcoord = -1 != it->second.m_texcoord;
 
 		if (!hasTexcoord
@@ -718,9 +740,9 @@ int main(int _argc, const char* _argv[])
 		{
 			hasTexcoord = true;
 
-			for (Index3Map::iterator it = indexMap.begin(), itEnd = indexMap.end(); it != itEnd; ++it)
+			for (Index3Map::iterator jt = indexMap.begin(), jtEnd = indexMap.end(); jt != jtEnd; ++jt)
 			{
-				it->second.m_texcoord = it->second.m_position;
+				jt->second.m_texcoord = jt->second.m_position;
 			}
 		}
 
@@ -729,9 +751,9 @@ int main(int _argc, const char* _argv[])
 		{
 			hasNormal = true;
 
-			for (Index3Map::iterator it = indexMap.begin(), itEnd = indexMap.end(); it != itEnd; ++it)
+			for (Index3Map::iterator jt = indexMap.begin(), jtEnd = indexMap.end(); jt != jtEnd; ++jt)
 			{
-				it->second.m_normal = it->second.m_position;
+				jt->second.m_normal = jt->second.m_position;
 			}
 		}
 	}
@@ -743,6 +765,11 @@ int main(int _argc, const char* _argv[])
 	if (hasColor)
 	{
 		decl.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true);
+	}
+
+	if (hasBc)
+	{
+		decl.add(bgfx::Attrib::Color1, 4, bgfx::AttribType::Uint8, true);
 	}
 
 	if (hasTexcoord)
@@ -801,7 +828,7 @@ int main(int _argc, const char* _argv[])
 	PrimitiveArray primitives;
 
 	bx::CrtFileWriter writer;
-	if (0 != writer.open(outFilePath) )
+	if (!bx::open(&writer, outFilePath) )
 	{
 		printf("Unable to open output file '%s'.", outFilePath);
 		exit(EXIT_FAILURE);
@@ -842,14 +869,14 @@ int main(int _argc, const char* _argv[])
 				triReorderElapsed -= bx::getHPCounter();
 				for (PrimitiveArray::const_iterator primIt = primitives.begin(); primIt != primitives.end(); ++primIt)
 				{
-					const Primitive& prim = *primIt;
-					triangleReorder(indexData + prim.m_startIndex, prim.m_numIndices, numVertices, 32);
+					const Primitive& prim1 = *primIt;
+					triangleReorder(indexData + prim1.m_startIndex, prim1.m_numIndices, numVertices, 32);
 					if (compress)
 					{
 						triangleCompress(&memWriter
-							, indexData  + prim.m_startIndex
-							, prim.m_numIndices
-							, vertexData + prim.m_startVertex
+							, indexData  + prim1.m_startIndex
+							, prim1.m_numIndices
+							, vertexData + prim1.m_startVertex
 							, numVertices
 							, stride
 							);
@@ -904,6 +931,17 @@ int main(int _argc, const char* _argv[])
 						*color0 = rgbaToAbgr(numVertices%255, numIndices%255, 0, 0xff);
 					}
 
+					if (hasBc)
+					{
+						const float bc[3] =
+						{
+							(index.m_vbc == 0) ? 1.0f : 0.0f,
+							(index.m_vbc == 1) ? 1.0f : 0.0f,
+							(index.m_vbc == 2) ? 1.0f : 0.0f,
+						};
+						bgfx::vertexPack(bc, true, bgfx::Attrib::Color1, decl, vertices);
+					}
+
 					if (hasTexcoord)
 					{
 						float uv[2];
@@ -932,14 +970,14 @@ int main(int _argc, const char* _argv[])
 			}
 		}
 
-		if (0 < numVertices)
+		prim.m_numVertices = numVertices - prim.m_startVertex;
+		if (0 < prim.m_numVertices)
 		{
-			prim.m_numVertices = numVertices - prim.m_startVertex;
 			prim.m_numIndices = numIndices - prim.m_startIndex;
 			prim.m_name = groupIt->m_name;
 			primitives.push_back(prim);
 			prim.m_startVertex = numVertices;
-			prim.m_startIndex = numIndices;
+			prim.m_startIndex  = numIndices;
 		}
 
 		BX_TRACE("%3d: s %5d, n %5d, %s\n"
@@ -962,14 +1000,14 @@ int main(int _argc, const char* _argv[])
 		triReorderElapsed -= bx::getHPCounter();
 		for (PrimitiveArray::const_iterator primIt = primitives.begin(); primIt != primitives.end(); ++primIt)
 		{
-			const Primitive& prim = *primIt;
-			triangleReorder(indexData + prim.m_startIndex, prim.m_numIndices, numVertices, 32);
+			const Primitive& prim1 = *primIt;
+			triangleReorder(indexData + prim1.m_startIndex, prim1.m_numIndices, numVertices, 32);
 			if (compress)
 			{
 				triangleCompress(&memWriter
-					, indexData  + prim.m_startIndex
-					, prim.m_numIndices
-					, vertexData + prim.m_startVertex
+					, indexData  + prim1.m_startIndex
+					, prim1.m_numIndices
+					, vertexData + prim1.m_startVertex
 					, numVertices
 					, stride
 					);
@@ -990,8 +1028,8 @@ int main(int _argc, const char* _argv[])
 			);
 	}
 
-	printf("size: %d\n", uint32_t(writer.seek() ) );
-	writer.close();
+	printf("size: %d\n", uint32_t(bx::seek(&writer) ) );
+	bx::close(&writer);
 
 	delete [] indexData;
 	delete [] vertexData;

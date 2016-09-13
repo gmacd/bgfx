@@ -1,9 +1,11 @@
 /*
  * Copyright 2014 Stanlo Slasinski. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 uniform vec4 u_params[3];
+
+#define threadGroupUpdateSize 512
 
 #define u_timeStep          u_params[0].x
 #define u_dispatchSize      floatBitsToUint(u_params[0].y)

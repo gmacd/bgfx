@@ -1,17 +1,25 @@
 /*
- * Copyright 2011-2015 Branimir Karadzic. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * Copyright 2011-2016 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
-#include <bgfx.h>
+#include <bx/bx.h>
+#include <bgfx/bgfx.h>
 #include <bx/string.h>
-#include <bx/readerwriter.h>
+#include <bx/crtimpl.h>
 
 #include <time.h>
+
+#if BX_PLATFORM_EMSCRIPTEN
+#	include <emscripten.h>
+#endif // BX_PLATFORM_EMSCRIPTEN
 
 #include "entry_p.h"
 #include "cmd.h"
 #include "input.h"
+
+#define RMT_ENABLED ENTRY_CONFIG_PROFILER
+#include <remotery/lib/Remotery.h>
 
 extern "C" int _main_(int _argc, char** _argv);
 
@@ -20,19 +28,153 @@ namespace entry
 	static uint32_t s_debug = BGFX_DEBUG_NONE;
 	static uint32_t s_reset = BGFX_RESET_NONE;
 	static bool s_exit = false;
+
+	static Remotery* s_rmt = NULL;
+
 	static bx::FileReaderI* s_fileReader = NULL;
 	static bx::FileWriterI* s_fileWriter = NULL;
 
-	extern bx::ReallocatorI* getDefaultAllocator();
-	static bx::ReallocatorI* s_allocator = getDefaultAllocator();
+	extern bx::AllocatorI* getDefaultAllocator();
+	static bx::AllocatorI* s_allocator = getDefaultAllocator();
+
+	void* rmtMalloc(void* /*_context*/, rmtU32 _size)
+	{
+		return BX_ALLOC(s_allocator, _size);
+	}
+
+	void* rmtRealloc(void* /*_context*/, void* _ptr, rmtU32 _size)
+	{
+		return BX_REALLOC(s_allocator, _ptr, _size);
+	}
+
+	void rmtFree(void* /*_context*/, void* _ptr)
+	{
+		BX_FREE(s_allocator, _ptr);
+	}
 
 #if ENTRY_CONFIG_IMPLEMENT_DEFAULT_ALLOCATOR
-	bx::ReallocatorI* getDefaultAllocator()
+	bx::AllocatorI* getDefaultAllocator()
 	{
+BX_PRAGMA_DIAGNOSTIC_PUSH();
+BX_PRAGMA_DIAGNOSTIC_IGNORED_MSVC(4459); // warning C4459: declaration of 's_allocator' hides global declaration
+BX_PRAGMA_DIAGNOSTIC_IGNORED_CLANG_GCC("-Wshadow");
 		static bx::CrtAllocator s_allocator;
 		return &s_allocator;
+BX_PRAGMA_DIAGNOSTIC_POP();
 	}
 #endif // ENTRY_CONFIG_IMPLEMENT_DEFAULT_ALLOCATOR
+
+	static const char* s_keyName[] =
+	{
+		"None",
+		"Esc",
+		"Return",
+		"Tab",
+		"Space",
+		"Backspace",
+		"Up",
+		"Down",
+		"Left",
+		"Right",
+		"Insert",
+		"Delete",
+		"Home",
+		"End",
+		"PageUp",
+		"PageDown",
+		"Print",
+		"Plus",
+		"Minus",
+		"LeftBracket",
+		"RightBracket",
+		"Semicolon",
+		"Quote",
+		"Comma",
+		"Period",
+		"Slash",
+		"Backslash",
+		"Tilde",
+		"F1",
+		"F2",
+		"F3",
+		"F4",
+		"F5",
+		"F6",
+		"F7",
+		"F8",
+		"F9",
+		"F10",
+		"F11",
+		"F12",
+		"NumPad0",
+		"NumPad1",
+		"NumPad2",
+		"NumPad3",
+		"NumPad4",
+		"NumPad5",
+		"NumPad6",
+		"NumPad7",
+		"NumPad8",
+		"NumPad9",
+		"Key0",
+		"Key1",
+		"Key2",
+		"Key3",
+		"Key4",
+		"Key5",
+		"Key6",
+		"Key7",
+		"Key8",
+		"Key9",
+		"KeyA",
+		"KeyB",
+		"KeyC",
+		"KeyD",
+		"KeyE",
+		"KeyF",
+		"KeyG",
+		"KeyH",
+		"KeyI",
+		"KeyJ",
+		"KeyK",
+		"KeyL",
+		"KeyM",
+		"KeyN",
+		"KeyO",
+		"KeyP",
+		"KeyQ",
+		"KeyR",
+		"KeyS",
+		"KeyT",
+		"KeyU",
+		"KeyV",
+		"KeyW",
+		"KeyX",
+		"KeyY",
+		"KeyZ",
+		"GamepadA",
+		"GamepadB",
+		"GamepadX",
+		"GamepadY",
+		"GamepadThumbL",
+		"GamepadThumbR",
+		"GamepadShoulderL",
+		"GamepadShoulderR",
+		"GamepadUp",
+		"GamepadDown",
+		"GamepadLeft",
+		"GamepadRight",
+		"GamepadBack",
+		"GamepadStart",
+		"GamepadGuide",
+	};
+	BX_STATIC_ASSERT(Key::Count == BX_COUNTOF(s_keyName) );
+
+	const char* getName(Key::Enum _key)
+	{
+		BX_CHECK(_key < Key::Count, "Invalid key %d.", _key);
+		return s_keyName[_key];
+	}
 
 	char keyToAscii(Key::Enum _key, uint8_t _modifiers)
 	{
@@ -46,7 +188,7 @@ namespace entry
 		const bool isNumber = (Key::Key0 <= _key && _key <= Key::Key9);
 		if (isNumber)
 		{
-			return '0' + (_key - Key::Key0);
+			return '0' + char(_key - Key::Key0);
 		}
 
 		const bool isChar = (Key::KeyA <= _key && _key <= Key::KeyZ);
@@ -55,7 +197,7 @@ namespace entry
 			enum { ShiftMask = Modifier::LeftShift|Modifier::RightShift };
 
 			const bool shift = !!(_modifiers&ShiftMask);
-			return (shift ? 'A' : 'a') + (_key - Key::KeyA);
+			return (shift ? 'A' : 'a') + char(_key - Key::KeyA);
 		}
 
 		switch (_key)
@@ -94,11 +236,6 @@ namespace entry
 		return false;
 	}
 
-	void cmd(const void* _userData)
-	{
-		cmdExec( (const char*)_userData);
-	}
-
 	int cmdMouseLock(CmdContext* /*_context*/, void* /*_userData*/, int _argc, char const* const* _argv)
 	{
 		if (_argc > 1)
@@ -114,12 +251,17 @@ namespace entry
 	{
 		if (_argc > 1)
 		{
-			if (setOrToggle(s_reset, "vsync",       BGFX_RESET_VSYNC,         1, _argc, _argv)
-			||  setOrToggle(s_reset, "maxaniso",    BGFX_RESET_MAXANISOTROPY, 1, _argc, _argv)
-			||  setOrToggle(s_reset, "hmd",         BGFX_RESET_HMD,           1, _argc, _argv)
-			||  setOrToggle(s_reset, "hmddbg",      BGFX_RESET_HMD_DEBUG,     1, _argc, _argv)
-			||  setOrToggle(s_reset, "hmdrecenter", BGFX_RESET_HMD_RECENTER,  1, _argc, _argv)
-			||  setOrToggle(s_reset, "msaa",        BGFX_RESET_MSAA_X16,      1, _argc, _argv) )
+			if (setOrToggle(s_reset, "vsync",       BGFX_RESET_VSYNC,              1, _argc, _argv)
+			||  setOrToggle(s_reset, "maxaniso",    BGFX_RESET_MAXANISOTROPY,      1, _argc, _argv)
+			||  setOrToggle(s_reset, "hmd",         BGFX_RESET_HMD,                1, _argc, _argv)
+			||  setOrToggle(s_reset, "hmddbg",      BGFX_RESET_HMD_DEBUG,          1, _argc, _argv)
+			||  setOrToggle(s_reset, "hmdrecenter", BGFX_RESET_HMD_RECENTER,       1, _argc, _argv)
+			||  setOrToggle(s_reset, "msaa",        BGFX_RESET_MSAA_X16,           1, _argc, _argv)
+			||  setOrToggle(s_reset, "flush",       BGFX_RESET_FLUSH_AFTER_RENDER, 1, _argc, _argv)
+			||  setOrToggle(s_reset, "flip",        BGFX_RESET_FLIP_AFTER_RENDER,  1, _argc, _argv)
+			||  setOrToggle(s_reset, "hidpi",       BGFX_RESET_HIDPI,              1, _argc, _argv)
+			||  setOrToggle(s_reset, "depthclamp",  BGFX_RESET_DEPTH_CLAMP,        1, _argc, _argv)
+			   )
 			{
 				return 0;
 			}
@@ -149,6 +291,12 @@ namespace entry
 
 				return 0;
 			}
+			else if (0 == strcmp(_argv[1], "fullscreen") )
+			{
+				WindowHandle window = { 0 };
+				toggleFullscreen(window);
+				return 0;
+			}
 		}
 
 		return 1;
@@ -162,24 +310,79 @@ namespace entry
 
 	static const InputBinding s_bindings[] =
 	{
-		{ entry::Key::KeyQ,         entry::Modifier::LeftCtrl,  1, cmd, "exit"                              },
-		{ entry::Key::F1,           entry::Modifier::None,      1, cmd, "graphics stats"                    },
-		{ entry::Key::GamepadStart, entry::Modifier::None,      1, cmd, "graphics stats"                    },
-		{ entry::Key::F1,           entry::Modifier::LeftShift, 1, cmd, "graphics stats 0\ngraphics text 0" },
-		{ entry::Key::F3,           entry::Modifier::None,      1, cmd, "graphics wireframe"                },
-		{ entry::Key::F4,           entry::Modifier::None,      1, cmd, "graphics hmd"                      },
-		{ entry::Key::F4,           entry::Modifier::LeftShift, 1, cmd, "graphics hmdrecenter"              },
-		{ entry::Key::F4,           entry::Modifier::LeftCtrl,  1, cmd, "graphics hmddbg"                   },
-		{ entry::Key::F7,           entry::Modifier::None,      1, cmd, "graphics vsync"                    },
-		{ entry::Key::F8,           entry::Modifier::None,      1, cmd, "graphics msaa"                     },
-		{ entry::Key::Print,        entry::Modifier::None,      1, cmd, "graphics screenshot"               },
+		{ entry::Key::KeyQ,         entry::Modifier::LeftCtrl,  1, NULL, "exit"                              },
+		{ entry::Key::KeyQ,         entry::Modifier::RightCtrl, 1, NULL, "exit"                              },
+		{ entry::Key::KeyF,         entry::Modifier::LeftCtrl,  1, NULL, "graphics fullscreen"               },
+		{ entry::Key::KeyF,         entry::Modifier::RightCtrl, 1, NULL, "graphics fullscreen"               },
+		{ entry::Key::Return,       entry::Modifier::RightAlt,  1, NULL, "graphics fullscreen"               },
+		{ entry::Key::F1,           entry::Modifier::None,      1, NULL, "graphics stats"                    },
+		{ entry::Key::GamepadStart, entry::Modifier::None,      1, NULL, "graphics stats"                    },
+		{ entry::Key::F1,           entry::Modifier::LeftShift, 1, NULL, "graphics stats 0\ngraphics text 0" },
+		{ entry::Key::F3,           entry::Modifier::None,      1, NULL, "graphics wireframe"                },
+		{ entry::Key::F4,           entry::Modifier::None,      1, NULL, "graphics hmd"                      },
+		{ entry::Key::F4,           entry::Modifier::LeftShift, 1, NULL, "graphics hmdrecenter"              },
+		{ entry::Key::F4,           entry::Modifier::LeftCtrl,  1, NULL, "graphics hmddbg"                   },
+		{ entry::Key::F7,           entry::Modifier::None,      1, NULL, "graphics vsync"                    },
+		{ entry::Key::F8,           entry::Modifier::None,      1, NULL, "graphics msaa"                     },
+		{ entry::Key::F9,           entry::Modifier::None,      1, NULL, "graphics flush"                    },
+		{ entry::Key::F10,          entry::Modifier::None,      1, NULL, "graphics hidpi"                    },
+		{ entry::Key::Print,        entry::Modifier::None,      1, NULL, "graphics screenshot"               },
 
 		INPUT_BINDING_END
 	};
 
+#if BX_PLATFORM_EMSCRIPTEN
+	static AppI* s_app;
+	static void updateApp()
+	{
+		s_app->update();
+	}
+#endif // BX_PLATFORM_EMSCRIPTEN
+
+	int runApp(AppI* _app, int _argc, char** _argv)
+	{
+		_app->init(_argc, _argv);
+		bgfx::frame();
+
+		WindowHandle defaultWindow = { 0 };
+		setWindowSize(defaultWindow, ENTRY_DEFAULT_WIDTH, ENTRY_DEFAULT_HEIGHT);
+
+#if BX_PLATFORM_EMSCRIPTEN
+		s_app = _app;
+		emscripten_set_main_loop(&updateApp, -1, 1);
+#else
+		while (_app->update() );
+#endif // BX_PLATFORM_EMSCRIPTEN
+
+		return _app->shutdown();
+	}
+
 	int main(int _argc, char** _argv)
 	{
 		//DBG(BX_COMPILER_NAME " / " BX_CPU_NAME " / " BX_ARCH_NAME " / " BX_PLATFORM_NAME);
+
+		if (BX_ENABLED(ENTRY_CONFIG_PROFILER) )
+		{
+			rmtSettings* settings = rmt_Settings();
+			BX_WARN(NULL != settings, "Remotery is not enabled.");
+			if (NULL != settings)
+			{
+				settings->malloc  = rmtMalloc;
+				settings->realloc = rmtRealloc;
+				settings->free    = rmtFree;
+
+				rmtError err = rmt_CreateGlobalInstance(&s_rmt);
+				BX_WARN(RMT_ERROR_NONE != err, "Remotery failed to create global instance.");
+				if (RMT_ERROR_NONE == err)
+				{
+					rmt_SetCurrentThreadName("Main");
+				}
+				else
+				{
+					s_rmt = NULL;
+				}
+			}
+		}
 
 #if BX_CONFIG_CRT_FILE_READER_WRITER
 		s_fileReader = new bx::CrtFileReader;
@@ -195,7 +398,8 @@ namespace entry
 		inputAddBindings("bindings", s_bindings);
 
 		entry::WindowHandle defaultWindow = { 0 };
-		entry::setWindowTitle(defaultWindow, bx::baseName(_argv[0]));
+		entry::setWindowTitle(defaultWindow, bx::baseName(_argv[0]) );
+		setWindowSize(defaultWindow, ENTRY_DEFAULT_WIDTH, ENTRY_DEFAULT_HEIGHT);
 
 		int32_t result = ::_main_(_argc, _argv);
 
@@ -211,6 +415,12 @@ namespace entry
 		delete s_fileWriter;
 		s_fileWriter = NULL;
 #endif // BX_CONFIG_CRT_FILE_READER_WRITER
+
+		if (BX_ENABLED(ENTRY_CONFIG_PROFILER)
+		&&  NULL != s_rmt)
+		{
+			rmt_DestroyGlobalInstance(s_rmt);
+		}
 
 		return result;
 	}
@@ -253,8 +463,8 @@ namespace entry
 
 				case Event::Gamepad:
 					{
-						const GamepadEvent* gev = static_cast<const GamepadEvent*>(ev);
-						DBG("gamepad %d, %d", gev->m_gamepad.idx, gev->m_connected);
+//						const GamepadEvent* gev = static_cast<const GamepadEvent*>(ev);
+//						DBG("gamepad %d, %d", gev->m_gamepad.idx, gev->m_connected);
 					}
 					break;
 
@@ -263,11 +473,8 @@ namespace entry
 						const MouseEvent* mouse = static_cast<const MouseEvent*>(ev);
 						handle = mouse->m_handle;
 
-						if (mouse->m_move)
-						{
-							inputSetMousePos(mouse->m_mx, mouse->m_my, mouse->m_mz);
-						}
-						else
+						inputSetMousePos(mouse->m_mx, mouse->m_my, mouse->m_mz);
+						if (!mouse->m_move)
 						{
 							inputSetMouseButtonState(mouse->m_button, mouse->m_down);
 						}
@@ -275,13 +482,10 @@ namespace entry
 						if (NULL != _mouse
 						&&  !mouseLock)
 						{
-							if (mouse->m_move)
-							{
-								_mouse->m_mx = mouse->m_mx;
-								_mouse->m_my = mouse->m_my;
-								_mouse->m_mz = mouse->m_mz;
-							}
-							else
+							_mouse->m_mx = mouse->m_mx;
+							_mouse->m_my = mouse->m_my;
+							_mouse->m_mz = mouse->m_mz;
+							if (!mouse->m_move) 
 							{
 								_mouse->m_buttons[mouse->m_button] = mouse->m_down;
 							}
@@ -311,6 +515,9 @@ namespace entry
 				case Event::Window:
 					break;
 
+				case Event::Suspend:
+					break;
+
 				default:
 					break;
 				}
@@ -325,7 +532,7 @@ namespace entry
 		{
 			_reset = s_reset;
 			bgfx::reset(_width, _height, _reset);
-			inputSetMouseResolution(_width, _height);
+			inputSetMouseResolution(uint16_t(_width), uint16_t(_height) );
 		}
 
 		_debug = s_debug;
@@ -460,6 +667,9 @@ namespace entry
 					}
 					break;
 
+				case Event::Suspend:
+					break;
+
 				default:
 					break;
 				}
@@ -476,7 +686,7 @@ namespace entry
 
 			if (handle.idx == 0)
 			{
-				inputSetMouseResolution(win.m_width, win.m_height);
+				inputSetMouseResolution(uint16_t(win.m_width), uint16_t(win.m_height) );
 			}
 		}
 
@@ -484,7 +694,7 @@ namespace entry
 		{
 			_reset = s_reset;
 			bgfx::reset(s_window[0].m_width, s_window[0].m_height, _reset);
-			inputSetMouseResolution(s_window[0].m_width, s_window[0].m_height);
+			inputSetMouseResolution(uint16_t(s_window[0].m_width), uint16_t(s_window[0].m_height) );
 		}
 
 		_debug = s_debug;
@@ -502,7 +712,7 @@ namespace entry
 		return s_fileWriter;
 	}
 
-	bx::ReallocatorI* getAllocator()
+	bx::AllocatorI* getAllocator()
 	{
 		return s_allocator;
 	}

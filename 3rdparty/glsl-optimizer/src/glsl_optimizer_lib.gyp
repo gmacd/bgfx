@@ -7,6 +7,7 @@
       'target_name': 'glsl_optimizer_lib',
       'type': 'static_library',
       'include_dirs': [
+        '.',
         'glsl',
         'mesa',
         '../include',
@@ -134,12 +135,9 @@
         'glsl/opt_swizzle_swizzle.cpp',
         'glsl/opt_tree_grafting.cpp',
         'glsl/opt_vectorize.cpp',
-        'glsl/opt_vector_splitting.cpp',
         'glsl/opt_flip_matrices.cpp',
         'glsl/opt_dead_builtin_varyings.cpp',
         'glsl/program.h',
-        'glsl/ralloc.c',
-        'glsl/ralloc.h',
         'glsl/s_expression.cpp',
         'glsl/s_expression.h',
         'glsl/standalone_scaffolding.cpp',
@@ -153,8 +151,6 @@
         'mesa/main/dd.h',
         'mesa/main/glheader.h',
         'mesa/main/glminimal.h',
-        'mesa/main/hash_table.c',
-        'mesa/main/hash_table.h',
         'mesa/main/imports.c',
         'mesa/main/imports.h',
         'mesa/main/macros.h',
@@ -167,11 +163,15 @@
         'mesa/program/prog_statevars.h',
         'mesa/program/symbol_table.c',
         'mesa/program/symbol_table.h',
+        'util/hash_table.c',
+        'util/hash_table.h',
+        'util/ralloc.c',
+        'util/ralloc.h',
       ],
       'conditions': [
         ['OS=="win"', {
           'include_dirs': [
-            '../include/c99',          
+            '../include/c99',
           ],
           'defines': [
             '_LIB',
@@ -184,7 +184,7 @@
           ],
           'msvs_disabled_warnings': [4028, 4244, 4267, 4996],
         }],
-      ],        
+      ],
     }
   ]
 }

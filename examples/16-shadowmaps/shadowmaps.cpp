@@ -1,6 +1,6 @@
 /*
  * Copyright 2013-2014 Dario Manesku. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #include <string>
@@ -10,10 +10,10 @@
 #include "common.h"
 #include "bgfx_utils.h"
 
-#include <bgfx.h>
+#include <bgfx/bgfx.h>
 #include <bx/timer.h>
-#include <bx/readerwriter.h>
 #include <bx/fpumath.h>
+#include <bx/crtimpl.h>
 #include "entry/entry.h"
 #include "camera.h"
 #include "imgui/imgui.h"
@@ -223,8 +223,8 @@ static const uint16_t s_planeIndices[] =
 static bool s_flipV = false;
 static float s_texelHalf = 0.0f;
 
-static bgfx::UniformHandle u_texColor;
-static bgfx::UniformHandle u_shadowMap[ShadowMapRenderTargets::Count];
+static bgfx::UniformHandle s_texColor;
+static bgfx::UniformHandle s_shadowMap[ShadowMapRenderTargets::Count];
 static bgfx::FrameBufferHandle s_rtShadowMap[ShadowMapRenderTargets::Count];
 static bgfx::FrameBufferHandle s_rtBlur;
 
@@ -412,7 +412,7 @@ struct Uniforms
 	void init()
 	{
 		m_ambientPass    = 1.0f;
-		m_lightningPass  = 1.0f;
+		m_lightingPass   = 1.0f;
 
 		m_shadowMapBias   = 0.003f;
 		m_shadowMapOffset = 0.0f;
@@ -448,34 +448,34 @@ struct Uniforms
 		m_XOffset = 10.0f/512.0f;
 		m_YOffset = 10.0f/512.0f;
 
-		u_params0          = bgfx::createUniform("u_params0",          bgfx::UniformType::Uniform4fv);
-		u_params1          = bgfx::createUniform("u_params1",          bgfx::UniformType::Uniform4fv);
-		u_params2          = bgfx::createUniform("u_params2",          bgfx::UniformType::Uniform4fv);
-		u_color            = bgfx::createUniform("u_color",            bgfx::UniformType::Uniform4fv);
-		u_smSamplingParams = bgfx::createUniform("u_smSamplingParams", bgfx::UniformType::Uniform4fv);
-		u_csmFarDistances  = bgfx::createUniform("u_csmFarDistances",  bgfx::UniformType::Uniform4fv);
-		u_lightMtx         = bgfx::createUniform("u_lightMtx",         bgfx::UniformType::Uniform4x4fv);
+		u_params0          = bgfx::createUniform("u_params0",          bgfx::UniformType::Vec4);
+		u_params1          = bgfx::createUniform("u_params1",          bgfx::UniformType::Vec4);
+		u_params2          = bgfx::createUniform("u_params2",          bgfx::UniformType::Vec4);
+		u_color            = bgfx::createUniform("u_color",            bgfx::UniformType::Vec4);
+		u_smSamplingParams = bgfx::createUniform("u_smSamplingParams", bgfx::UniformType::Vec4);
+		u_csmFarDistances  = bgfx::createUniform("u_csmFarDistances",  bgfx::UniformType::Vec4);
+		u_lightMtx         = bgfx::createUniform("u_lightMtx",         bgfx::UniformType::Mat4);
 
-		u_tetraNormalGreen  = bgfx::createUniform("u_tetraNormalGreen",  bgfx::UniformType::Uniform3fv);
-		u_tetraNormalYellow = bgfx::createUniform("u_tetraNormalYellow", bgfx::UniformType::Uniform3fv);
-		u_tetraNormalBlue   = bgfx::createUniform("u_tetraNormalBlue",   bgfx::UniformType::Uniform3fv);
-		u_tetraNormalRed    = bgfx::createUniform("u_tetraNormalRed",    bgfx::UniformType::Uniform3fv);
+		u_tetraNormalGreen  = bgfx::createUniform("u_tetraNormalGreen",  bgfx::UniformType::Vec4);
+		u_tetraNormalYellow = bgfx::createUniform("u_tetraNormalYellow", bgfx::UniformType::Vec4);
+		u_tetraNormalBlue   = bgfx::createUniform("u_tetraNormalBlue",   bgfx::UniformType::Vec4);
+		u_tetraNormalRed    = bgfx::createUniform("u_tetraNormalRed",    bgfx::UniformType::Vec4);
 
-		u_shadowMapMtx0 = bgfx::createUniform("u_shadowMapMtx0", bgfx::UniformType::Uniform4x4fv);
-		u_shadowMapMtx1 = bgfx::createUniform("u_shadowMapMtx1", bgfx::UniformType::Uniform4x4fv);
-		u_shadowMapMtx2 = bgfx::createUniform("u_shadowMapMtx2", bgfx::UniformType::Uniform4x4fv);
-		u_shadowMapMtx3 = bgfx::createUniform("u_shadowMapMtx3", bgfx::UniformType::Uniform4x4fv);
+		u_shadowMapMtx0 = bgfx::createUniform("u_shadowMapMtx0", bgfx::UniformType::Mat4);
+		u_shadowMapMtx1 = bgfx::createUniform("u_shadowMapMtx1", bgfx::UniformType::Mat4);
+		u_shadowMapMtx2 = bgfx::createUniform("u_shadowMapMtx2", bgfx::UniformType::Mat4);
+		u_shadowMapMtx3 = bgfx::createUniform("u_shadowMapMtx3", bgfx::UniformType::Mat4);
 
-		u_lightPosition             = bgfx::createUniform("u_lightPosition",              bgfx::UniformType::Uniform4fv);
-		u_lightAmbientPower         = bgfx::createUniform("u_lightAmbientPower",          bgfx::UniformType::Uniform4fv);
-		u_lightDiffusePower         = bgfx::createUniform("u_lightDiffusePower",          bgfx::UniformType::Uniform4fv);
-		u_lightSpecularPower        = bgfx::createUniform("u_lightSpecularPower",         bgfx::UniformType::Uniform4fv);
-		u_lightSpotDirectionInner   = bgfx::createUniform("u_lightSpotDirectionInner",    bgfx::UniformType::Uniform4fv);
-		u_lightAttenuationSpotOuter = bgfx::createUniform("u_lightAttenuationSpotOuter",  bgfx::UniformType::Uniform4fv);
+		u_lightPosition             = bgfx::createUniform("u_lightPosition",              bgfx::UniformType::Vec4);
+		u_lightAmbientPower         = bgfx::createUniform("u_lightAmbientPower",          bgfx::UniformType::Vec4);
+		u_lightDiffusePower         = bgfx::createUniform("u_lightDiffusePower",          bgfx::UniformType::Vec4);
+		u_lightSpecularPower        = bgfx::createUniform("u_lightSpecularPower",         bgfx::UniformType::Vec4);
+		u_lightSpotDirectionInner   = bgfx::createUniform("u_lightSpotDirectionInner",    bgfx::UniformType::Vec4);
+		u_lightAttenuationSpotOuter = bgfx::createUniform("u_lightAttenuationSpotOuter",  bgfx::UniformType::Vec4);
 
-		u_materialKa = bgfx::createUniform("u_materialKa", bgfx::UniformType::Uniform4fv);
-		u_materialKd = bgfx::createUniform("u_materialKd", bgfx::UniformType::Uniform4fv);
-		u_materialKs = bgfx::createUniform("u_materialKs", bgfx::UniformType::Uniform4fv);
+		u_materialKa = bgfx::createUniform("u_materialKa", bgfx::UniformType::Vec4);
+		u_materialKd = bgfx::createUniform("u_materialKd", bgfx::UniformType::Vec4);
+		u_materialKs = bgfx::createUniform("u_materialKs", bgfx::UniformType::Vec4);
 
 	}
 
@@ -571,7 +571,7 @@ struct Uniforms
 		struct
 		{
 			float m_ambientPass;
-			float m_lightningPass;
+			float m_lightingPass;
 			float m_unused00;
 			float m_unused01;
 		};
@@ -771,14 +771,14 @@ static RenderState s_renderStates[RenderState::Count] =
 
 struct ViewState
 {
-	ViewState(uint32_t _width = 1280, uint32_t _height = 720)
+	ViewState(uint16_t _width = 1280, uint16_t _height = 720)
 		: m_width(_width)
 		, m_height(_height)
 	{
 	}
 
-	uint32_t m_width;
-	uint32_t m_height;
+	uint16_t m_width;
+	uint16_t m_height;
 
 	float m_view[16];
 	float m_proj[16];
@@ -856,7 +856,7 @@ struct Group
 
 namespace bgfx
 {
-	int32_t read(bx::ReaderI* _reader, bgfx::VertexDecl& _decl);
+	int32_t read(bx::ReaderI* _reader, bgfx::VertexDecl& _decl, bx::Error* _err = NULL);
 }
 
 struct Mesh
@@ -891,7 +891,7 @@ struct Mesh
 #define BGFX_CHUNK_MAGIC_PRI BX_MAKEFOURCC('P', 'R', 'I', 0x0)
 
 		bx::CrtFileReader reader;
-		reader.open(_filePath);
+		bx::open(&reader, _filePath);
 
 		Group group;
 
@@ -971,7 +971,7 @@ struct Mesh
 			}
 		}
 
-		reader.close();
+		bx::close(&reader);
 	}
 
 	void unload()
@@ -989,13 +989,13 @@ struct Mesh
 		m_groups.clear();
 	}
 
-	void submit(uint8_t _viewId, float* _mtx, bgfx::ProgramHandle _program, const RenderState& _renderState)
+	void submit(uint8_t _viewId, float* _mtx, bgfx::ProgramHandle _program, const RenderState& _renderState, bool _submitShadowMaps = false)
 	{
 		bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
-		submit(_viewId, _mtx, _program, _renderState, texture);
+		submit(_viewId, _mtx, _program, _renderState, texture, _submitShadowMaps);
 	}
 
-	void submit(uint8_t _viewId, float* _mtx, bgfx::ProgramHandle _program, const RenderState& _renderState, bgfx::TextureHandle _texture)
+	void submit(uint8_t _viewId, float* _mtx, bgfx::ProgramHandle _program, const RenderState& _renderState, bgfx::TextureHandle _texture, bool _submitShadowMaps = false)
 	{
 		for (GroupArray::const_iterator it = m_groups.begin(), itEnd = m_groups.end(); it != itEnd; ++it)
 		{
@@ -1006,19 +1006,21 @@ struct Mesh
 
 			// Set model matrix for rendering.
 			bgfx::setTransform(_mtx);
-			bgfx::setProgram(_program);
 			bgfx::setIndexBuffer(group.m_ibh);
 			bgfx::setVertexBuffer(group.m_vbh);
 
 			// Set textures.
 			if (bgfx::invalidHandle != _texture.idx)
 			{
-				bgfx::setTexture(0, u_texColor, _texture);
+				bgfx::setTexture(0, s_texColor, _texture);
 			}
 
-			for (uint8_t ii = 0; ii < ShadowMapRenderTargets::Count; ++ii)
+			if (_submitShadowMaps)
 			{
-				bgfx::setTexture(4 + ii, u_shadowMap[ii], s_rtShadowMap[ii]);
+				for (uint8_t ii = 0; ii < ShadowMapRenderTargets::Count; ++ii)
+				{
+					bgfx::setTexture(4 + ii, s_shadowMap[ii], s_rtShadowMap[ii]);
+				}
 			}
 
 			// Apply render state.
@@ -1026,7 +1028,7 @@ struct Mesh
 			bgfx::setState(_renderState.m_state, _renderState.m_blendFactorRgba);
 
 			// Submit.
-			bgfx::submit(_viewId);
+			bgfx::submit(_viewId, _program);
 		}
 	}
 
@@ -1202,48 +1204,48 @@ struct Programs
 		m_packDepth[DepthImpl::Linear][PackDepth::RGBA] = loadProgram("vs_shadowmaps_packdepth_linear", "fs_shadowmaps_packdepth_linear");
 		m_packDepth[DepthImpl::Linear][PackDepth::VSM]  = loadProgram("vs_shadowmaps_packdepth_linear", "fs_shadowmaps_packdepth_vsm_linear");
 
-		// Color lightning.
-		m_colorLightning[SmType::Single][DepthImpl::InvZ][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lightning", "fs_shadowmaps_color_lightning_hard");
-		m_colorLightning[SmType::Single][DepthImpl::InvZ][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lightning", "fs_shadowmaps_color_lightning_pcf");
-		m_colorLightning[SmType::Single][DepthImpl::InvZ][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lightning", "fs_shadowmaps_color_lightning_vsm");
-		m_colorLightning[SmType::Single][DepthImpl::InvZ][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lightning", "fs_shadowmaps_color_lightning_esm");
+		// Color lighting.
+		m_colorLighting[SmType::Single][DepthImpl::InvZ][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lighting", "fs_shadowmaps_color_lighting_hard");
+		m_colorLighting[SmType::Single][DepthImpl::InvZ][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lighting", "fs_shadowmaps_color_lighting_pcf");
+		m_colorLighting[SmType::Single][DepthImpl::InvZ][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lighting", "fs_shadowmaps_color_lighting_vsm");
+		m_colorLighting[SmType::Single][DepthImpl::InvZ][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lighting", "fs_shadowmaps_color_lighting_esm");
 
-		m_colorLightning[SmType::Single][DepthImpl::Linear][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lightning_linear", "fs_shadowmaps_color_lightning_hard_linear");
-		m_colorLightning[SmType::Single][DepthImpl::Linear][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lightning_linear", "fs_shadowmaps_color_lightning_pcf_linear");
-		m_colorLightning[SmType::Single][DepthImpl::Linear][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lightning_linear", "fs_shadowmaps_color_lightning_vsm_linear");
-		m_colorLightning[SmType::Single][DepthImpl::Linear][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lightning_linear", "fs_shadowmaps_color_lightning_esm_linear");
+		m_colorLighting[SmType::Single][DepthImpl::Linear][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lighting_linear", "fs_shadowmaps_color_lighting_hard_linear");
+		m_colorLighting[SmType::Single][DepthImpl::Linear][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lighting_linear", "fs_shadowmaps_color_lighting_pcf_linear");
+		m_colorLighting[SmType::Single][DepthImpl::Linear][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lighting_linear", "fs_shadowmaps_color_lighting_vsm_linear");
+		m_colorLighting[SmType::Single][DepthImpl::Linear][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lighting_linear", "fs_shadowmaps_color_lighting_esm_linear");
 
-		m_colorLightning[SmType::Omni][DepthImpl::InvZ][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lightning_omni", "fs_shadowmaps_color_lightning_hard_omni");
-		m_colorLightning[SmType::Omni][DepthImpl::InvZ][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lightning_omni", "fs_shadowmaps_color_lightning_pcf_omni");
-		m_colorLightning[SmType::Omni][DepthImpl::InvZ][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lightning_omni", "fs_shadowmaps_color_lightning_vsm_omni");
-		m_colorLightning[SmType::Omni][DepthImpl::InvZ][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lightning_omni", "fs_shadowmaps_color_lightning_esm_omni");
+		m_colorLighting[SmType::Omni][DepthImpl::InvZ][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lighting_omni", "fs_shadowmaps_color_lighting_hard_omni");
+		m_colorLighting[SmType::Omni][DepthImpl::InvZ][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lighting_omni", "fs_shadowmaps_color_lighting_pcf_omni");
+		m_colorLighting[SmType::Omni][DepthImpl::InvZ][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lighting_omni", "fs_shadowmaps_color_lighting_vsm_omni");
+		m_colorLighting[SmType::Omni][DepthImpl::InvZ][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lighting_omni", "fs_shadowmaps_color_lighting_esm_omni");
 
-		m_colorLightning[SmType::Omni][DepthImpl::Linear][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lightning_linear_omni", "fs_shadowmaps_color_lightning_hard_linear_omni");
-		m_colorLightning[SmType::Omni][DepthImpl::Linear][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lightning_linear_omni", "fs_shadowmaps_color_lightning_pcf_linear_omni");
-		m_colorLightning[SmType::Omni][DepthImpl::Linear][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lightning_linear_omni", "fs_shadowmaps_color_lightning_vsm_linear_omni");
-		m_colorLightning[SmType::Omni][DepthImpl::Linear][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lightning_linear_omni", "fs_shadowmaps_color_lightning_esm_linear_omni");
+		m_colorLighting[SmType::Omni][DepthImpl::Linear][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lighting_linear_omni", "fs_shadowmaps_color_lighting_hard_linear_omni");
+		m_colorLighting[SmType::Omni][DepthImpl::Linear][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lighting_linear_omni", "fs_shadowmaps_color_lighting_pcf_linear_omni");
+		m_colorLighting[SmType::Omni][DepthImpl::Linear][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lighting_linear_omni", "fs_shadowmaps_color_lighting_vsm_linear_omni");
+		m_colorLighting[SmType::Omni][DepthImpl::Linear][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lighting_linear_omni", "fs_shadowmaps_color_lighting_esm_linear_omni");
 
-		m_colorLightning[SmType::Cascade][DepthImpl::InvZ][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lightning_csm", "fs_shadowmaps_color_lightning_hard_csm");
-		m_colorLightning[SmType::Cascade][DepthImpl::InvZ][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lightning_csm", "fs_shadowmaps_color_lightning_pcf_csm");
-		m_colorLightning[SmType::Cascade][DepthImpl::InvZ][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lightning_csm", "fs_shadowmaps_color_lightning_vsm_csm");
-		m_colorLightning[SmType::Cascade][DepthImpl::InvZ][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lightning_csm", "fs_shadowmaps_color_lightning_esm_csm");
+		m_colorLighting[SmType::Cascade][DepthImpl::InvZ][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lighting_csm", "fs_shadowmaps_color_lighting_hard_csm");
+		m_colorLighting[SmType::Cascade][DepthImpl::InvZ][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lighting_csm", "fs_shadowmaps_color_lighting_pcf_csm");
+		m_colorLighting[SmType::Cascade][DepthImpl::InvZ][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lighting_csm", "fs_shadowmaps_color_lighting_vsm_csm");
+		m_colorLighting[SmType::Cascade][DepthImpl::InvZ][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lighting_csm", "fs_shadowmaps_color_lighting_esm_csm");
 
-		m_colorLightning[SmType::Cascade][DepthImpl::Linear][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lightning_linear_csm", "fs_shadowmaps_color_lightning_hard_linear_csm");
-		m_colorLightning[SmType::Cascade][DepthImpl::Linear][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lightning_linear_csm", "fs_shadowmaps_color_lightning_pcf_linear_csm");
-		m_colorLightning[SmType::Cascade][DepthImpl::Linear][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lightning_linear_csm", "fs_shadowmaps_color_lightning_vsm_linear_csm");
-		m_colorLightning[SmType::Cascade][DepthImpl::Linear][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lightning_linear_csm", "fs_shadowmaps_color_lightning_esm_linear_csm");
+		m_colorLighting[SmType::Cascade][DepthImpl::Linear][SmImpl::Hard] = loadProgram("vs_shadowmaps_color_lighting_linear_csm", "fs_shadowmaps_color_lighting_hard_linear_csm");
+		m_colorLighting[SmType::Cascade][DepthImpl::Linear][SmImpl::PCF]  = loadProgram("vs_shadowmaps_color_lighting_linear_csm", "fs_shadowmaps_color_lighting_pcf_linear_csm");
+		m_colorLighting[SmType::Cascade][DepthImpl::Linear][SmImpl::VSM]  = loadProgram("vs_shadowmaps_color_lighting_linear_csm", "fs_shadowmaps_color_lighting_vsm_linear_csm");
+		m_colorLighting[SmType::Cascade][DepthImpl::Linear][SmImpl::ESM]  = loadProgram("vs_shadowmaps_color_lighting_linear_csm", "fs_shadowmaps_color_lighting_esm_linear_csm");
 	}
 
 	void destroy()
 	{
-		// Color lightning.
+		// Color lighting.
 		for (uint8_t ii = 0; ii < SmType::Count; ++ii)
 		{
 			for (uint8_t jj = 0; jj < DepthImpl::Count; ++jj)
 			{
 				for (uint8_t kk = 0; kk < SmImpl::Count; ++kk)
 				{
-					bgfx::destroyProgram(m_colorLightning[ii][jj][kk]);
+					bgfx::destroyProgram(m_colorLighting[ii][jj][kk]);
 				}
 			}
 		}
@@ -1288,7 +1290,7 @@ struct Programs
 	bgfx::ProgramHandle m_hBlur[PackDepth::Count];
 	bgfx::ProgramHandle m_drawDepth[PackDepth::Count];
 	bgfx::ProgramHandle m_packDepth[DepthImpl::Count][PackDepth::Count];
-	bgfx::ProgramHandle m_colorLightning[SmType::Count][DepthImpl::Count][SmImpl::Count];
+	bgfx::ProgramHandle m_colorLighting[SmType::Count][DepthImpl::Count][SmImpl::Count];
 };
 
 static Programs s_programs;
@@ -1314,15 +1316,17 @@ struct ShadowMapSettings
 #undef IMGUI_FLOAT_PARAM
 };
 
-int _main_(int /*_argc*/, char** /*_argv*/)
+int _main_(int _argc, char** _argv)
 {
+	Args args(_argc, _argv);
+
 	uint32_t debug = BGFX_DEBUG_TEXT;
 	uint32_t reset = BGFX_RESET_VSYNC;
 
 	ViewState viewState(1280, 720);
 	ClearValues clearValues(0x00000000, 1.0f, 0);
 
-	bgfx::init();
+	bgfx::init(args.m_type, args.m_pciId);
 	bgfx::reset(viewState.m_width, viewState.m_height, reset);
 
 	// Enable debug text.
@@ -1350,11 +1354,11 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 
 	// Uniforms.
 	s_uniforms.init();
-	u_texColor = bgfx::createUniform("u_texColor",  bgfx::UniformType::Uniform1iv);
-	u_shadowMap[0] = bgfx::createUniform("u_shadowMap0", bgfx::UniformType::Uniform1iv);
-	u_shadowMap[1] = bgfx::createUniform("u_shadowMap1", bgfx::UniformType::Uniform1iv);
-	u_shadowMap[2] = bgfx::createUniform("u_shadowMap2", bgfx::UniformType::Uniform1iv);
-	u_shadowMap[3] = bgfx::createUniform("u_shadowMap3", bgfx::UniformType::Uniform1iv);
+	s_texColor = bgfx::createUniform("s_texColor",  bgfx::UniformType::Int1);
+	s_shadowMap[0] = bgfx::createUniform("s_shadowMap0", bgfx::UniformType::Int1);
+	s_shadowMap[1] = bgfx::createUniform("s_shadowMap1", bgfx::UniformType::Int1);
+	s_shadowMap[2] = bgfx::createUniform("s_shadowMap2", bgfx::UniformType::Int1);
+	s_shadowMap[3] = bgfx::createUniform("s_shadowMap3", bgfx::UniformType::Int1);
 
 	// Programs.
 	s_programs.init();
@@ -1375,9 +1379,9 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 	PosColorTexCoord0Vertex::init();
 
 	// Textures.
-	bgfx::TextureHandle texFigure     = loadTexture("figure-rgba.dds");
-	bgfx::TextureHandle texFlare      = loadTexture("flare.dds");
-	bgfx::TextureHandle texFieldstone = loadTexture("fieldstone-rgba.dds");
+	bgfx::TextureHandle texFigure     = loadTexture("textures/figure-rgba.dds");
+	bgfx::TextureHandle texFlare      = loadTexture("textures/flare.dds");
+	bgfx::TextureHandle texFieldstone = loadTexture("textures/fieldstone-rgba.dds");
 
 	// Meshes.
 	Mesh bunnyMesh;
@@ -1463,7 +1467,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Single][DepthImpl::InvZ][SmImpl::Hard] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Single][DepthImpl::InvZ][SmImpl::Hard] //m_progDraw
 		},
 		{ //SmImpl::PCF
 			  10.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1480,7 +1484,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Single][DepthImpl::InvZ][SmImpl::PCF] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Single][DepthImpl::InvZ][SmImpl::PCF] //m_progDraw
 		},
 		{ //SmImpl::VSM
 			  10.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1497,7 +1501,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::VSM] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Single][DepthImpl::InvZ][SmImpl::VSM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Single][DepthImpl::InvZ][SmImpl::VSM] //m_progDraw
 		},
 		{ //SmImpl::ESM
 			  10.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1514,7 +1518,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Single][DepthImpl::InvZ][SmImpl::ESM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Single][DepthImpl::InvZ][SmImpl::ESM] //m_progDraw
 		}
 
 		},
@@ -1535,7 +1539,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Single][DepthImpl::Linear][SmImpl::Hard] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Single][DepthImpl::Linear][SmImpl::Hard] //m_progDraw
 		},
 		{ //SmImpl::PCF
 			  10.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1552,7 +1556,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Single][DepthImpl::Linear][SmImpl::PCF] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Single][DepthImpl::Linear][SmImpl::PCF] //m_progDraw
 		},
 		{ //SmImpl::VSM
 			  10.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1569,7 +1573,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::VSM] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Single][DepthImpl::Linear][SmImpl::VSM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Single][DepthImpl::Linear][SmImpl::VSM] //m_progDraw
 		},
 		{ //SmImpl::ESM
 			  10.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1586,7 +1590,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Single][DepthImpl::Linear][SmImpl::ESM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Single][DepthImpl::Linear][SmImpl::ESM] //m_progDraw
 		}
 
 		}
@@ -1611,7 +1615,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.25f, 0.0f, 2.0f, 0.001f        // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Omni][DepthImpl::InvZ][SmImpl::Hard] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Omni][DepthImpl::InvZ][SmImpl::Hard] //m_progDraw
 		},
 		{ //SmImpl::PCF
 			  12.0f, 9.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1628,7 +1632,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.001f         // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Omni][DepthImpl::InvZ][SmImpl::PCF] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Omni][DepthImpl::InvZ][SmImpl::PCF] //m_progDraw
 		},
 		{ //SmImpl::VSM
 			  12.0f, 9.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1645,7 +1649,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.25f, 0.0f, 2.0f, 0.001f        // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::VSM] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Omni][DepthImpl::InvZ][SmImpl::VSM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Omni][DepthImpl::InvZ][SmImpl::VSM] //m_progDraw
 		},
 		{ //SmImpl::ESM
 			  12.0f, 9.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1662,7 +1666,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.25f, 0.0f, 2.0f, 0.001f        // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Omni][DepthImpl::InvZ][SmImpl::ESM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Omni][DepthImpl::InvZ][SmImpl::ESM] //m_progDraw
 		}
 
 		},
@@ -1683,7 +1687,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.25f, 0.0f, 2.0f, 0.001f        // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Omni][DepthImpl::Linear][SmImpl::Hard] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Omni][DepthImpl::Linear][SmImpl::Hard] //m_progDraw
 		},
 		{ //SmImpl::PCF
 			  12.0f, 9.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1700,7 +1704,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.001f         // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Omni][DepthImpl::Linear][SmImpl::PCF] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Omni][DepthImpl::Linear][SmImpl::PCF] //m_progDraw
 		},
 		{ //SmImpl::VSM
 			  12.0f, 9.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1717,7 +1721,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.25f, 0.0f, 2.0f, 0.001f        // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::VSM] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Omni][DepthImpl::Linear][SmImpl::VSM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Omni][DepthImpl::Linear][SmImpl::VSM] //m_progDraw
 		},
 		{ //SmImpl::ESM
 			  12.0f, 9.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1734,7 +1738,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.25f, 0.0f, 2.0f, 0.001f        // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Omni][DepthImpl::Linear][SmImpl::ESM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Omni][DepthImpl::Linear][SmImpl::ESM] //m_progDraw
 		}
 
 		}
@@ -1759,7 +1763,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.2f, 0.0f, 1.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Cascade][DepthImpl::InvZ][SmImpl::Hard] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Cascade][DepthImpl::InvZ][SmImpl::Hard] //m_progDraw
 		},
 		{ //SmImpl::PCF
 			  11.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1776,7 +1780,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Cascade][DepthImpl::InvZ][SmImpl::PCF] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Cascade][DepthImpl::InvZ][SmImpl::PCF] //m_progDraw
 		},
 		{ //SmImpl::VSM
 			  11.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1793,7 +1797,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.2f, 0.0f, 1.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::VSM] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Cascade][DepthImpl::InvZ][SmImpl::VSM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Cascade][DepthImpl::InvZ][SmImpl::VSM] //m_progDraw
 		},
 		{ //SmImpl::ESM
 			  11.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1810,7 +1814,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.2f, 0.0f, 1.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::InvZ][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Cascade][DepthImpl::InvZ][SmImpl::ESM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Cascade][DepthImpl::InvZ][SmImpl::ESM] //m_progDraw
 		}
 
 		},
@@ -1831,7 +1835,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.2f, 0.0f, 1.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Cascade][DepthImpl::Linear][SmImpl::Hard] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Cascade][DepthImpl::Linear][SmImpl::Hard] //m_progDraw
 		},
 		{ //SmImpl::PCF
 			  11.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1848,7 +1852,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 1.0f, 0.0f, 3.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Cascade][DepthImpl::Linear][SmImpl::PCF] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Cascade][DepthImpl::Linear][SmImpl::PCF] //m_progDraw
 		},
 		{ //SmImpl::VSM
 			  11.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1865,7 +1869,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.2f, 0.0f, 1.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::VSM] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Cascade][DepthImpl::Linear][SmImpl::VSM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Cascade][DepthImpl::Linear][SmImpl::VSM] //m_progDraw
 		},
 		{ //SmImpl::ESM
 			  11.0f, 7.0f, 12.0f, 1.0f         // m_sizePwrTwo
@@ -1882,7 +1886,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			, 0.2f, 0.0f, 1.0f, 0.01f          // m_yOffset
 			, true                             // m_doBlur
 			, &s_programs.m_packDepth[DepthImpl::Linear][PackDepth::RGBA] //m_progPack
-			, &s_programs.m_colorLightning[SmType::Cascade][DepthImpl::Linear][SmImpl::ESM] //m_progDraw
+			, &s_programs.m_colorLighting[SmType::Cascade][DepthImpl::Linear][SmImpl::ESM] //m_progDraw
 		}
 
 		}
@@ -1940,8 +1944,8 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 	{
 		bgfx::TextureHandle fbtextures[] =
 		{
-			bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT),
-			bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, 1, bgfx::TextureFormat::D24S8),
+			bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT),
+			bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, false, 1, bgfx::TextureFormat::D24S8, BGFX_TEXTURE_RT),
 		};
 		s_rtShadowMap[ii] = bgfx::createFrameBuffer(BX_COUNTOF(fbtextures), fbtextures, true);
 	}
@@ -1959,7 +1963,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 	const float camNear    = 0.1f;
 	const float camFar     = 2000.0f;
 	const float projHeight = 1.0f/tanf(bx::toRad(camFovy)*0.5f);
-	const float projWidth  = projHeight * 1.0f/camAspect;
+	const float projWidth  = projHeight * camAspect;
 	bx::mtxProj(viewState.m_proj, camFovy, camAspect, camNear, camFar);
 	cameraGetViewMtx(viewState.m_view);
 
@@ -1967,14 +1971,20 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 	float timeAccumulatorScene = 0.0f;
 
 	entry::MouseState mouseState;
-	while (!entry::processEvents(viewState.m_width, viewState.m_height, debug, reset, &mouseState) )
+	uint32_t width;
+	uint32_t height;
+	while (!entry::processEvents(width, height, debug, reset, &mouseState) )
 	{
+		viewState.m_width  = uint16_t(width);
+		viewState.m_height = uint16_t(height);
+
 		// Imgui.
 		imguiBeginFrame(mouseState.m_mx
 			, mouseState.m_my
-			, (mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT  : 0)
-			| (mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT : 0)
-			, 0
+			, (mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT   : 0)
+			| (mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT  : 0)
+			| (mouseState.m_buttons[entry::MouseButton::Middle] ? IMGUI_MBUT_MIDDLE : 0)
+			, mouseState.m_mz
 			, viewState.m_width
 			, viewState.m_height
 			);
@@ -1985,9 +1995,9 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 #define IMGUI_FLOAT_SLIDER(_name, _val) \
 			imguiSlider(_name \
 					, _val \
-					, *(((float*)&_val)+1) \
-					, *(((float*)&_val)+2) \
-					, *(((float*)&_val)+3) \
+					, *( ((float*)&_val)+1) \
+					, *( ((float*)&_val)+2) \
+					, *( ((float*)&_val)+3) \
 					)
 
 		imguiBool("Update lights", settings.m_updateLights);
@@ -2165,16 +2175,16 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 		if (settings.m_updateScene)  { timeAccumulatorScene += deltaTime; }
 
 		// Setup lights.
-		pointLight.m_position.m_x = cos(timeAccumulatorLight) * 20.0f;
+		pointLight.m_position.m_x = cosf(timeAccumulatorLight) * 20.0f;
 		pointLight.m_position.m_y = 26.0f;
-		pointLight.m_position.m_z = sin(timeAccumulatorLight) * 20.0f;
+		pointLight.m_position.m_z = sinf(timeAccumulatorLight) * 20.0f;
 		pointLight.m_spotDirectionInner.m_x = -pointLight.m_position.m_x;
 		pointLight.m_spotDirectionInner.m_y = -pointLight.m_position.m_y;
 		pointLight.m_spotDirectionInner.m_z = -pointLight.m_position.m_z;
 
-		directionalLight.m_position.m_x = -cos(timeAccumulatorLight);
+		directionalLight.m_position.m_x = -cosf(timeAccumulatorLight);
 		directionalLight.m_position.m_y = -1.0f;
-		directionalLight.m_position.m_z = -sin(timeAccumulatorLight);
+		directionalLight.m_position.m_z = -sinf(timeAccumulatorLight);
 
 		// Setup instance matrices.
 		float mtxFloor[16];
@@ -2446,16 +2456,16 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 
 		// Reset render targets.
 		const bgfx::FrameBufferHandle invalidRt = BGFX_INVALID_HANDLE;
-		for (uint32_t ii = 0; ii < RENDERVIEW_DRAWDEPTH_3_ID+1; ++ii)
+		for (uint8_t ii = 0; ii < RENDERVIEW_DRAWDEPTH_3_ID+1; ++ii)
 		{
 			bgfx::setViewFrameBuffer(ii, invalidRt);
 		}
 
 		// Determine on-screen rectangle size where depth buffer will be drawn.
-		const uint16_t depthRectHeight = uint16_t(float(viewState.m_height) / 2.5f);
-		const uint16_t depthRectWidth  = depthRectHeight;
-		const uint16_t depthRectX = 0;
-		const uint16_t depthRectY = viewState.m_height - depthRectHeight;
+		uint16_t depthRectHeight = uint16_t(float(viewState.m_height) / 2.5f);
+		uint16_t depthRectWidth  = depthRectHeight;
+		uint16_t depthRectX = 0;
+		uint16_t depthRectY = viewState.m_height - depthRectHeight;
 
 		// Setup views and render targets.
 		bgfx::setViewRect(0, 0, 0, viewState.m_width, viewState.m_height);
@@ -2583,10 +2593,10 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			 * RENDERVIEW_DRAWDEPTH_3_ID - Draw depth buffer for fourth split.
 			 */
 
-			const uint16_t depthRectHeight = viewState.m_height / 3;
-			const uint16_t depthRectWidth  = depthRectHeight;
-			const uint16_t depthRectX = 0;
-			const uint16_t depthRectY = viewState.m_height - depthRectHeight;
+			depthRectHeight = viewState.m_height / 3;
+			depthRectWidth  = depthRectHeight;
+			depthRectX = 0;
+			depthRectY = viewState.m_height - depthRectHeight;
 
 			bgfx::setViewRect(RENDERVIEW_SHADOWMAP_1_ID, 0, 0, currentShadowMapSize, currentShadowMapSize);
 			bgfx::setViewRect(RENDERVIEW_SHADOWMAP_2_ID, 0, 0, currentShadowMapSize, currentShadowMapSize);
@@ -2648,7 +2658,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 				, clearValues.m_clearDepth
 				, clearValues.m_clearStencil
 				);
-		bgfx::submit(0);
+		bgfx::touch(0);
 
 		// Clear shadowmap rendertarget at beginning.
 		const uint8_t flags0 = (LightType::DirectionalLight == settings.m_lightType)
@@ -2662,7 +2672,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 				, clearValues.m_clearDepth
 				, clearValues.m_clearStencil
 				);
-		bgfx::submit(RENDERVIEW_SHADOWMAP_0_ID);
+		bgfx::touch(RENDERVIEW_SHADOWMAP_0_ID);
 
 		const uint8_t flags1 = (LightType::DirectionalLight == settings.m_lightType)
 							 ? BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH
@@ -2677,7 +2687,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 					, clearValues.m_clearDepth
 					, clearValues.m_clearStencil
 					);
-			bgfx::submit(RENDERVIEW_SHADOWMAP_1_ID+ii);
+			bgfx::touch(RENDERVIEW_SHADOWMAP_1_ID+ii);
 		}
 
 		// Render.
@@ -2727,7 +2737,6 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 					vertex[5].m_y = max;
 					vertex[5].m_z = zz;
 
-					bgfx::setProgram(s_programs.m_black);
 					bgfx::setState(0);
 					bgfx::setStencil(BGFX_STENCIL_TEST_ALWAYS
 							| BGFX_STENCIL_FUNC_REF(1)
@@ -2737,7 +2746,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 							| BGFX_STENCIL_OP_PASS_Z_REPLACE
 							);
 					bgfx::setVertexBuffer(&vb);
-					bgfx::submit(RENDERVIEW_SHADOWMAP_0_ID);
+					bgfx::submit(RENDERVIEW_SHADOWMAP_0_ID, s_programs.m_black);
 				}
 			}
 
@@ -2763,7 +2772,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 				uint8_t renderStateIndex = RenderState::ShadowMap_PackDepth;
 				if(LightType::PointLight == settings.m_lightType && settings.m_stencilPack)
 				{
-					renderStateIndex = (ii < 2) ? RenderState::ShadowMap_PackDepthHoriz : RenderState::ShadowMap_PackDepthVert;
+					renderStateIndex = uint8_t( (ii < 2) ? RenderState::ShadowMap_PackDepthHoriz : RenderState::ShadowMap_PackDepthVert);
 				}
 
 				// Floor.
@@ -2795,10 +2804,10 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 						);
 
 				// Trees.
-				for (uint8_t ii = 0; ii < numTrees; ++ii)
+				for (uint8_t jj = 0; jj < numTrees; ++jj)
 				{
 					treeMesh.submit(viewId
-							, mtxTrees[ii]
+							, mtxTrees[jj]
 							, *currentSmSettings->m_progPack
 							, s_renderStates[renderStateIndex]
 							);
@@ -2810,19 +2819,18 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 		bool bVsmOrEsm = (SmImpl::VSM == settings.m_smImpl) || (SmImpl::ESM == settings.m_smImpl);
 
 		// Blur shadow map.
-		if (bVsmOrEsm && currentSmSettings->m_doBlur)
+		if (bVsmOrEsm
+		&&  currentSmSettings->m_doBlur)
 		{
-			bgfx::setTexture(4, u_shadowMap[0], s_rtShadowMap[0]);
-			bgfx::setProgram(s_programs.m_vBlur[depthType]);
+			bgfx::setTexture(4, s_shadowMap[0], s_rtShadowMap[0]);
 			bgfx::setState(BGFX_STATE_RGB_WRITE|BGFX_STATE_ALPHA_WRITE);
 			screenSpaceQuad(currentShadowMapSizef, currentShadowMapSizef, s_flipV);
-			bgfx::submit(RENDERVIEW_VBLUR_0_ID);
+			bgfx::submit(RENDERVIEW_VBLUR_0_ID, s_programs.m_vBlur[depthType]);
 
-			bgfx::setTexture(4, u_shadowMap[0], s_rtBlur);
-			bgfx::setProgram(s_programs.m_hBlur[depthType]);
+			bgfx::setTexture(4, s_shadowMap[0], s_rtBlur);
 			bgfx::setState(BGFX_STATE_RGB_WRITE|BGFX_STATE_ALPHA_WRITE);
 			screenSpaceQuad(currentShadowMapSizef, currentShadowMapSizef, s_flipV);
-			bgfx::submit(RENDERVIEW_HBLUR_0_ID);
+			bgfx::submit(RENDERVIEW_HBLUR_0_ID, s_programs.m_hBlur[depthType]);
 
 			if (LightType::DirectionalLight == settings.m_lightType)
 			{
@@ -2830,17 +2838,15 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 				{
 					const uint8_t viewId = RENDERVIEW_VBLUR_0_ID + jj;
 
-					bgfx::setTexture(4, u_shadowMap[0], s_rtShadowMap[ii]);
-					bgfx::setProgram(s_programs.m_vBlur[depthType]);
+					bgfx::setTexture(4, s_shadowMap[0], s_rtShadowMap[ii]);
 					bgfx::setState(BGFX_STATE_RGB_WRITE|BGFX_STATE_ALPHA_WRITE);
 					screenSpaceQuad(currentShadowMapSizef, currentShadowMapSizef, s_flipV);
-					bgfx::submit(viewId);
+					bgfx::submit(viewId, s_programs.m_vBlur[depthType]);
 
-					bgfx::setTexture(4, u_shadowMap[0], s_rtBlur);
-					bgfx::setProgram(s_programs.m_hBlur[depthType]);
+					bgfx::setTexture(4, s_shadowMap[0], s_rtBlur);
 					bgfx::setState(BGFX_STATE_RGB_WRITE|BGFX_STATE_ALPHA_WRITE);
 					screenSpaceQuad(currentShadowMapSizef, currentShadowMapSizef, s_flipV);
-					bgfx::submit(viewId+1);
+					bgfx::submit(viewId+1, s_programs.m_hBlur[depthType]);
 				}
 			}
 		}
@@ -2851,7 +2857,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			float mtxShadow[16];
 
 			const float ymul = (s_flipV) ? 0.5f : -0.5f;
-			const float zadd = (DepthImpl::Linear == settings.m_depthImpl) ? 0.0f : 0.5f;
+			float zadd = (DepthImpl::Linear == settings.m_depthImpl) ? 0.0f : 0.5f;
 
 			const float mtxBias[16] =
 			{
@@ -2870,7 +2876,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			else if (LightType::PointLight == settings.m_lightType)
 			{
 				const float s = (s_flipV) ? 1.0f : -1.0f; //sign
-				const float zadd = (DepthImpl::Linear == settings.m_depthImpl) ? 0.0f : 0.5f;
+				zadd = (DepthImpl::Linear == settings.m_depthImpl) ? 0.0f : 0.5f;
 
 				const float mtxCropBias[2][TetrahedronFaces::Count][16] =
 				{
@@ -2979,6 +2985,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 					, mtxFloor
 					, *currentSmSettings->m_progDraw
 					, s_renderStates[RenderState::Default]
+					, true
 					);
 
 			// Bunny.
@@ -2990,6 +2997,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 					, mtxBunny
 					, *currentSmSettings->m_progDraw
 					, s_renderStates[RenderState::Default]
+					, true
 					);
 
 			// Hollow cube.
@@ -3001,6 +3009,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 					, mtxHollowcube
 					, *currentSmSettings->m_progDraw
 					, s_renderStates[RenderState::Default]
+					, true
 					);
 
 			// Cube.
@@ -3012,6 +3021,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 					, mtxCube
 					, *currentSmSettings->m_progDraw
 					, s_renderStates[RenderState::Default]
+					, true
 					);
 
 			// Trees.
@@ -3025,6 +3035,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 						, mtxTrees[ii]
 						, *currentSmSettings->m_progDraw
 						, s_renderStates[RenderState::Default]
+						, true
 						);
 			}
 
@@ -3067,21 +3078,19 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 		// Draw depth rect.
 		if (settings.m_drawDepthBuffer)
 		{
-			bgfx::setTexture(4, u_shadowMap[0], s_rtShadowMap[0]);
-			bgfx::setProgram(s_programs.m_drawDepth[depthType]);
+			bgfx::setTexture(4, s_shadowMap[0], s_rtShadowMap[0]);
 			bgfx::setState(BGFX_STATE_RGB_WRITE|BGFX_STATE_ALPHA_WRITE);
 			screenSpaceQuad(currentShadowMapSizef, currentShadowMapSizef, s_flipV);
-			bgfx::submit(RENDERVIEW_DRAWDEPTH_0_ID);
+			bgfx::submit(RENDERVIEW_DRAWDEPTH_0_ID, s_programs.m_drawDepth[depthType]);
 
 			if (LightType::DirectionalLight == settings.m_lightType)
 			{
 				for (uint8_t ii = 1; ii < settings.m_numSplits; ++ii)
 				{
-					bgfx::setTexture(4, u_shadowMap[0], s_rtShadowMap[ii]);
-					bgfx::setProgram(s_programs.m_drawDepth[depthType]);
+					bgfx::setTexture(4, s_shadowMap[0], s_rtShadowMap[ii]);
 					bgfx::setState(BGFX_STATE_RGB_WRITE|BGFX_STATE_ALPHA_WRITE);
 					screenSpaceQuad(currentShadowMapSizef, currentShadowMapSizef, s_flipV);
-					bgfx::submit(RENDERVIEW_DRAWDEPTH_0_ID+ii);
+					bgfx::submit(RENDERVIEW_DRAWDEPTH_0_ID+ii, s_programs.m_drawDepth[depthType]);
 				}
 			}
 		}
@@ -3099,8 +3108,8 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 
 				bgfx::TextureHandle fbtextures[] =
 				{
-					bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT),
-					bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, 1, bgfx::TextureFormat::D24S8),
+					bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT),
+					bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, false, 1, bgfx::TextureFormat::D24S8, BGFX_TEXTURE_RT),
 				};
 				s_rtShadowMap[0] = bgfx::createFrameBuffer(BX_COUNTOF(fbtextures), fbtextures, true);
 			}
@@ -3114,8 +3123,8 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 
 						bgfx::TextureHandle fbtextures[] =
 						{
-							bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT),
-							bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, 1, bgfx::TextureFormat::D24S8),
+							bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT),
+							bgfx::createTexture2D(currentShadowMapSize, currentShadowMapSize, false, 1, bgfx::TextureFormat::D24S8, BGFX_TEXTURE_RT),
 						};
 						s_rtShadowMap[ii] = bgfx::createFrameBuffer(BX_COUNTOF(fbtextures), fbtextures, true);
 					}
@@ -3151,11 +3160,11 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 
 	s_programs.destroy();
 
-	bgfx::destroyUniform(u_texColor);
-	bgfx::destroyUniform(u_shadowMap[3]);
-	bgfx::destroyUniform(u_shadowMap[2]);
-	bgfx::destroyUniform(u_shadowMap[1]);
-	bgfx::destroyUniform(u_shadowMap[0]);
+	bgfx::destroyUniform(s_texColor);
+	bgfx::destroyUniform(s_shadowMap[3]);
+	bgfx::destroyUniform(s_shadowMap[2]);
+	bgfx::destroyUniform(s_shadowMap[1]);
+	bgfx::destroyUniform(s_shadowMap[0]);
 
 	s_uniforms.destroy();
 

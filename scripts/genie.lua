@@ -1,16 +1,16 @@
 --
--- Copyright 2010-2015 Branimir Karadzic. All rights reserved.
--- License: http://www.opensource.org/licenses/BSD-2-Clause
+-- Copyright 2010-2016 Branimir Karadzic. All rights reserved.
+-- License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
 --
 
 newoption {
-	trigger = "with-tools",
-	description = "Enable building tools.",
+	trigger = "with-amalgamated",
+	description = "Enable amalgamated build.",
 }
 
 newoption {
-	trigger = "with-shared-lib",
-	description = "Enable building shared library.",
+	trigger = "with-ovr",
+	description = "Enable OculusVR integration.",
 }
 
 newoption {
@@ -19,8 +19,33 @@ newoption {
 }
 
 newoption {
-	trigger = "with-ovr",
-	description = "Enable OculusVR integration.",
+	trigger = "with-glfw",
+	description = "Enable GLFW entry.",
+}
+
+newoption {
+	trigger = "with-profiler",
+	description = "Enable build with intrusive profiler.",
+}
+
+newoption {
+	trigger = "with-scintilla",
+	description = "Enable building with Scintilla editor.",
+}
+
+newoption {
+	trigger = "with-shared-lib",
+	description = "Enable building shared library.",
+}
+
+newoption {
+	trigger = "with-tools",
+	description = "Enable building tools.",
+}
+
+newoption {
+	trigger = "with-examples",
+	description = "Enable building examples.",
 }
 
 solution "bgfx"
@@ -32,23 +57,34 @@ solution "bgfx"
 	if _ACTION == "xcode4" then
 		platforms {
 			"Universal",
-	}
+		}
 	else
 		platforms {
 			"x32",
 			"x64",
 --			"Xbox360",
 			"Native", -- for targets where bitness is not specified
-	}
+		}
 	end
 
 	language "C++"
 	startproject "example-00-helloworld"
 
-BGFX_DIR = path.getabsolute("..")
+MODULE_DIR = path.getabsolute("../")
+BGFX_DIR   = path.getabsolute("..")
+BX_DIR     = os.getenv("BX_DIR")
+
 local BGFX_BUILD_DIR = path.join(BGFX_DIR, ".build")
 local BGFX_THIRD_PARTY_DIR = path.join(BGFX_DIR, "3rdparty")
-BX_DIR = path.getabsolute(path.join(BGFX_DIR, "../bx"))
+if not BX_DIR then
+	BX_DIR = path.getabsolute(path.join(BGFX_DIR, "../bx"))
+end
+
+if not os.isdir(BX_DIR) then
+	print("bx not found at " .. BX_DIR)
+	print("For more info see: https://bkaradzic.github.io/bgfx/build.html")
+	os.exit()
+end
 
 defines {
 	"BX_CONFIG_ENABLE_MSVC_LEVEL4_WARNINGS=1"
@@ -70,6 +106,14 @@ if _OPTIONS["with-sdl"] then
 	end
 end
 
+if _OPTIONS["with-profiler"] then
+	defines {
+		"ENTRY_CONFIG_PROFILER=1",
+		"BGFX_CONFIG_PROFILER_REMOTERY=1",
+        "_WINSOCKAPI_"
+	}
+end
+
 function exampleProject(_name)
 
 	project ("example-" .. _name)
@@ -78,21 +122,23 @@ function exampleProject(_name)
 
 	configuration {}
 
-	-- don't output debugdir for winphone builds
-	if "winphone81" ~= _OPTIONS["vs"] then
-		debugdir (path.join(BGFX_DIR, "examples/runtime"))
-	end
+	debugdir (path.join(BGFX_DIR, "examples/runtime"))
 
 	includedirs {
-		path.join(BX_DIR, "include"),
+		path.join(BX_DIR,   "include"),
 		path.join(BGFX_DIR, "include"),
 		path.join(BGFX_DIR, "3rdparty"),
 		path.join(BGFX_DIR, "examples/common"),
 	}
 
 	files {
+		path.join(BGFX_DIR, "examples", _name, "**.c"),
 		path.join(BGFX_DIR, "examples", _name, "**.cpp"),
 		path.join(BGFX_DIR, "examples", _name, "**.h"),
+	}
+
+	removefiles {
+		path.join(BGFX_DIR, "examples", _name, "**.bin.h"),
 	}
 
 	links {
@@ -104,43 +150,48 @@ function exampleProject(_name)
 		defines { "ENTRY_CONFIG_USE_SDL=1" }
 		links   { "SDL2" }
 
-		configuration { "x32", "windows" }
-			libdirs { "$(SDL2_DIR)/lib/x86" }
+		configuration { "osx" }
+			libdirs { "$(SDL2_DIR)/lib" }
 
-		configuration { "x64", "windows" }
-			libdirs { "$(SDL2_DIR)/lib/x64" }
+		configuration {}
+	end
+
+	if _OPTIONS["with-glfw"] then
+		defines { "ENTRY_CONFIG_USE_GLFW=1" }
+		links   { "glfw3" }
+
+		configuration { "linux or freebsd" }
+			links {
+				"Xrandr",
+				"Xinerama",
+				"Xi",
+				"Xxf86vm",
+				"Xcursor",
+			}
+
+		configuration { "osx" }
+			linkoptions {
+				"-framework CoreVideo",
+				"-framework IOKit",
+			}
 
 		configuration {}
 	end
 
 	if _OPTIONS["with-ovr"] then
-		links   {
-			"winmm",
-			"ws2_32",
-		}
-
 		configuration { "x32" }
-			libdirs { path.join("$(OVR_DIR)/LibOVR/Lib/Win32", _ACTION) }
+			libdirs { path.join("$(OVR_DIR)/LibOVR/Lib/Windows/Win32/Release", _ACTION) }
 
 		configuration { "x64" }
-			libdirs { path.join("$(OVR_DIR)/LibOVR/Lib/x64", _ACTION) }
+			libdirs { path.join("$(OVR_DIR)/LibOVR/Lib/Windows/x64/Release", _ACTION) }
 
-		configuration { "x32", "Debug" }
-			links { "libovrd" }
-
-		configuration { "x32", "Release" }
+		configuration { "x32 or x64" }
 			links { "libovr" }
-
-		configuration { "x64", "Debug" }
-			links { "libovr64d" }
-
-		configuration { "x64", "Release" }
-			links { "libovr64" }
 
 		configuration {}
 	end
 
-	configuration { "vs*" }
+	configuration { "vs*", "x32 or x64" }
 		linkoptions {
 			"/ignore:4199", -- LNK4199: /DELAYLOAD:*.dll ignored; no imports found from *.dll
 		}
@@ -148,7 +199,7 @@ function exampleProject(_name)
 			"DelayImp",
 		}
 
-	configuration { "vs201*" }
+	configuration { "vs201*", "x32 or x64" }
 		linkoptions { -- this is needed only for testing with GLES2/3 on Windows with VS201x
 			"/DELAYLOAD:\"libEGL.dll\"",
 			"/DELAYLOAD:\"libGLESv2.dll\"",
@@ -156,14 +207,26 @@ function exampleProject(_name)
 
 	configuration { "mingw*" }
 		targetextension ".exe"
-
-	configuration { "vs20* or mingw*" }
 		links {
 			"gdi32",
 			"psapi",
 		}
 
-	configuration { "winphone8*"}
+	configuration { "vs20*", "x32 or x64" }
+		links {
+			"gdi32",
+			"psapi",
+		}
+
+	configuration { "durango" }
+		links {
+			"d3d11_x",
+			"d3d12_x",
+			"combase",
+			"kernelx",
+		}
+
+	configuration { "winphone8* or winstore8*" }
 		removelinks {
 			"DelayImp",
 			"gdi32",
@@ -176,7 +239,17 @@ function exampleProject(_name)
 		linkoptions {
 			"/ignore:4264" -- LNK4264: archiving object file compiled with /ZW into a static library; note that when authoring Windows Runtime types it is not recommended to link with a static library that contains Windows Runtime metadata
 		}
-		-- WinRT targets need their own output directories are build files stomp over each other
+
+	-- WinRT targets need their own output directories or build files stomp over each other
+	configuration { "x32", "winphone8* or winstore8*" }
+		targetdir (path.join(BGFX_BUILD_DIR, "win32_" .. _ACTION, "bin", _name))
+		objdir (path.join(BGFX_BUILD_DIR, "win32_" .. _ACTION, "obj", _name))
+
+	configuration { "x64", "winphone8* or winstore8*" }
+		targetdir (path.join(BGFX_BUILD_DIR, "win64_" .. _ACTION, "bin", _name))
+		objdir (path.join(BGFX_BUILD_DIR, "win64_" .. _ACTION, "obj", _name))
+
+	configuration { "ARM", "winphone8* or winstore8*" }
 		targetdir (path.join(BGFX_BUILD_DIR, "arm_" .. _ACTION, "bin", _name))
 		objdir (path.join(BGFX_BUILD_DIR, "arm_" .. _ACTION, "obj", _name))
 
@@ -216,10 +289,18 @@ function exampleProject(_name)
 		kind "ConsoleApp"
 		targetextension ".bc"
 
-	configuration { "linux-*" }
+	configuration { "linux-* or freebsd", "not linux-steamlink" }
 		links {
 			"X11",
 			"GL",
+			"pthread",
+		}
+
+	configuration { "linux-steamlink" }
+		links {
+			"EGL",
+			"GLESv2",
+			"SDL2",
 			"pthread",
 		}
 
@@ -235,31 +316,34 @@ function exampleProject(_name)
 		}
 
 	configuration { "osx" }
-		files {
-			path.join(BGFX_DIR, "examples/common/**.mm"),
-		}
-		links {
-			"Cocoa.framework",
-			"OpenGL.framework",
+		linkoptions {
+			"-framework Cocoa",
+			"-framework QuartzCore",
+			"-framework OpenGL",
+			"-weak_framework Metal",
 		}
 
-	configuration { "ios*" }
+	configuration { "ios* or tvos*" }
 		kind "ConsoleApp"
-		files {
-			path.join(BGFX_DIR, "examples/common/**.mm"),
-		}
 		linkoptions {
 			"-framework CoreFoundation",
 			"-framework Foundation",
 			"-framework OpenGLES",
 			"-framework UIKit",
 			"-framework QuartzCore",
+			"-weak_framework Metal",
 		}
 
 	configuration { "xcode4", "ios" }
 		kind "WindowedApp"
 		files {
 			path.join(BGFX_DIR, "examples/runtime/iOS-Info.plist"),
+		}
+
+	configuration { "xcode4", "tvos" }
+		kind "WindowedApp"
+		files {
+			path.join(BGFX_DIR, "examples/runtime/tvOS-Info.plist"),
 		}
 
 	configuration { "qnx*" }
@@ -276,38 +360,53 @@ end
 
 dofile "bgfx.lua"
 
-group "examples"
-dofile "example-common.lua"
-
 group "libs"
 bgfxProject("", "StaticLib", {})
 
-group "examples"
-exampleProject("00-helloworld")
-exampleProject("01-cubes")
-exampleProject("02-metaballs")
-exampleProject("03-raymarch")
-exampleProject("04-mesh")
-exampleProject("05-instancing")
-exampleProject("06-bump")
-exampleProject("07-callback")
-exampleProject("08-update")
-exampleProject("09-hdr")
-exampleProject("10-font")
-exampleProject("11-fontsdf")
-exampleProject("12-lod")
-exampleProject("13-stencil")
-exampleProject("14-shadowvolumes")
-exampleProject("15-shadowmaps-simple")
-exampleProject("16-shadowmaps")
-exampleProject("17-drawstress")
-exampleProject("18-ibl")
-exampleProject("19-oit")
-exampleProject("20-nanovg")
-exampleProject("21-deferred")
-exampleProject("22-windows")
-exampleProject("23-vectordisplay")
-exampleProject("24-nbody")
+if _OPTIONS["with-examples"] or _OPTIONS["with-tools"] then
+	group "examples"
+	dofile "example-common.lua"
+end
+
+if _OPTIONS["with-examples"] then
+	group "examples"
+	exampleProject("00-helloworld")
+	exampleProject("01-cubes")
+	exampleProject("02-metaballs")
+	exampleProject("03-raymarch")
+	exampleProject("04-mesh")
+	exampleProject("05-instancing")
+	exampleProject("06-bump")
+	exampleProject("07-callback")
+	exampleProject("08-update")
+	exampleProject("09-hdr")
+	exampleProject("10-font")
+	exampleProject("11-fontsdf")
+	exampleProject("12-lod")
+	exampleProject("13-stencil")
+	exampleProject("14-shadowvolumes")
+	exampleProject("15-shadowmaps-simple")
+	exampleProject("16-shadowmaps")
+	exampleProject("17-drawstress")
+	exampleProject("18-ibl")
+	exampleProject("19-oit")
+	exampleProject("20-nanovg")
+	exampleProject("21-deferred")
+	exampleProject("22-windows")
+	exampleProject("23-vectordisplay")
+	exampleProject("24-nbody")
+	exampleProject("26-occlusion")
+	exampleProject("27-terrain")
+	exampleProject("28-wireframe")
+	exampleProject("29-debugdraw")
+	exampleProject("30-picking")
+	exampleProject("31-rsm")
+
+	-- C99 source doesn't compile under WinRT settings
+	if not premake.vstudio.iswinrt() then
+		exampleProject("25-c99")
+	end
+end
 
 if _OPTIONS["with-shared-lib"] then
 	group "libs"
@@ -316,8 +415,8 @@ end
 
 if _OPTIONS["with-tools"] then
 	group "tools"
-	dofile "makedisttex.lua"
 	dofile "shaderc.lua"
 	dofile "texturec.lua"
+	dofile "texturev.lua"
 	dofile "geometryc.lua"
 end

@@ -3042,6 +3042,12 @@ process_initializer(ir_variable *var, ast_declaration *decl,
    ir_dereference *const lhs = new(state) ir_dereference_variable(var);
    ir_rvalue *rhs = decl->initializer->hir(initializer_instructions, state);
 
+   /* Propagate precision qualifier for constant value */
+   if (type->qualifier.flags.q.constant) {
+      ir_constant *constant_value = rhs->constant_expression_value();
+      constant_value->set_precision((glsl_precision)type->qualifier.precision);
+   }
+	
    /* Calculate the constant value if this is a const or uniform
     * declaration.
     */
@@ -3136,13 +3142,13 @@ process_initializer(ir_variable *var, ast_declaration *decl,
 
 static void
 apply_precision_to_variable(const struct ast_type_qualifier& qual,
-				 ir_variable *var,
+				 ir_variable *var, bool function_param,
 				 struct _mesa_glsl_parse_state *state)
 {
 	if (!state->es_shader)
 		return;
-	if (var->type->is_sampler() && qual.precision == ast_precision_none)
-		var->data.precision = ast_precision_low; // samplers default to low precision
+	if (var->type->is_sampler() && qual.precision == ast_precision_none && !function_param)
+		var->data.precision = ast_precision_low; // samplers default to low precision (outside of function arguments)
 	else
 		var->data.precision = qual.precision;
 }
@@ -3548,7 +3554,7 @@ ast_declarator_list::hir(exec_list *instructions,
 
       apply_type_qualifier_to_variable(& this->type->qualifier, var, state,
 					   & loc, false);
-	  apply_precision_to_variable(this->type->qualifier, var, state);
+	  apply_precision_to_variable(this->type->qualifier, var, false, state);
 
       if (this->type->qualifier.flags.q.invariant) {
          if (!is_varying_var(var, state->stage)) {
@@ -4005,7 +4011,7 @@ ast_parameter_declarator::hir(exec_list *instructions,
     */
    apply_type_qualifier_to_variable(& this->type->qualifier, var, state, & loc,
                                     true);
-   apply_precision_to_variable(this->type->qualifier, var, state);
+   apply_precision_to_variable(this->type->qualifier, var, true, state);
 
    /* From section 4.1.7 of the GLSL 4.40 spec:
     *

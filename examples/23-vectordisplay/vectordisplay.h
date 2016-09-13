@@ -1,6 +1,6 @@
 /*
  * Copyright 2014 Kai Jourdan. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  *
  * Based on code from Brian Luczkiewicz
  * https://github.com/blucz/Vector
@@ -12,11 +12,24 @@
 #ifndef __VECTORDISPLAY_H__
 #define __VECTORDISPLAY_H__
 
-#include "bgfx.h"
+#include <bgfx/bgfx.h>
 
 #include <tinystl/allocator.h>
 #include <tinystl/vector.h>
 namespace stl = tinystl;
+
+struct PosColorUvVertex
+{
+	float m_x;
+	float m_y;
+	float m_z;
+	float m_u;
+	float m_v;
+	uint32_t m_abgr;
+
+	static void init();
+	static bgfx::VertexDecl ms_decl;
+};
 
 class VectorDisplay
 {
@@ -103,19 +116,12 @@ public:
 protected:
 	void screenSpaceQuad(float _textureWidth, float _textureHeight, float _width = 1.0f, float _height = 1.0f);
 
-	typedef struct             //has to match the spec submitted to the 3d-api!
-	{
-		float x, y, z;
-		float u, v;
-		uint32_t color;
-	} point_t;
-
-	typedef struct
+	struct PendingPoint
 	{
 		float x, y;
-	} pending_point_t;
+	};
 
-	typedef struct
+	struct Line
 	{
 		float x0, y0, x1, y1;                     // nominal points
 		float a;                                  // angle
@@ -135,7 +141,7 @@ protected:
 		float s0, s1;                             // shorten line by this amount
 
 		float len;
-	} line_t;
+	};
 
 	float effectiveThickness();
 	void setupResDependent();
@@ -144,26 +150,22 @@ protected:
 	void appendTexpoint(float _x, float _y, float _u, float _v);
 
 	void drawFan(float _cx, float _cy, float _pa, float _a, float _t, float _s, float _e);
-	void drawLines(line_t* _lines, int _numberLines);
+	void drawLines(Line* _lines, int _numberLines);
 	void genLinetex();
 
 	bool m_originBottomLeft;
 	float m_texelHalf;
 
-	bgfx::ProgramHandle m_drawToScreenShader;          // program for drawing to the framebuffer
-	bgfx::UniformHandle u_compose_alpha;
-
-	bgfx::FrameBufferHandle m_sceneFrameBuffer;
-
-	bgfx::ProgramHandle m_blurShader;        // program for gaussian blur
-	bgfx::UniformHandle u_blur_scale;
-	bgfx::UniformHandle u_compose_mult;
-	bgfx::UniformHandle s_textureSampler;              //texture handle for blur
-
+	bgfx::ProgramHandle m_drawToScreenShader;   // program for drawing to the framebuffer
+	bgfx::ProgramHandle m_blurShader;           // program for gaussian blur
 	bgfx::ProgramHandle m_blitShader;
 
-	bgfx::FrameBufferHandle m_glow0FrameBuffer;        // framebuffer for glow pass 0
-	bgfx::FrameBufferHandle m_glow1FrameBuffer;        // framebuffer for glow pass 1
+	bgfx::UniformHandle u_params;
+	bgfx::UniformHandle s_texColor;
+
+	bgfx::FrameBufferHandle m_sceneFrameBuffer;
+	bgfx::FrameBufferHandle m_glow0FrameBuffer; // framebuffer for glow pass 0
+	bgfx::FrameBufferHandle m_glow1FrameBuffer; // framebuffer for glow pass 1
 
 	int m_view;
 
@@ -174,15 +176,14 @@ protected:
 	float m_decayValue;
 	uint8_t m_drawColorR, m_drawColorG, m_drawColorB, m_drawColorA;
 
-	stl::vector<point_t> m_points;
-	stl::vector<pending_point_t> m_pendingPoints;
+	stl::vector<PosColorUvVertex> m_points;
+	stl::vector<PendingPoint> m_pendingPoints;
 
 	int m_currentDrawStep;
 	stl::vector<bgfx::DynamicVertexBufferHandle> m_vertexBuffers;
 	stl::vector<int> m_vertexBuffersSize;
 
 	bgfx::TextureHandle m_lineTexId;
-	bgfx::UniformHandle s_lineTexture;
 
 	float m_initialDecay;
 

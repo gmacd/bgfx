@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2015 Branimir Karadzic. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * Copyright 2011-2016 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #ifndef BGFX_RENDERER_GL_H_HEADER_GUARD
@@ -10,19 +10,22 @@
 			|| BX_PLATFORM_ANDROID \
 			|| BX_PLATFORM_EMSCRIPTEN \
 			|| BX_PLATFORM_LINUX \
+			|| BX_PLATFORM_BSD \
 			|| BX_PLATFORM_QNX \
 			|| BX_PLATFORM_RPI \
+			|| BX_PLATFORM_STEAMLINK \
 			|| BX_PLATFORM_WINDOWS \
 			) )
 
 #define BGFX_USE_WGL (BGFX_CONFIG_RENDERER_OPENGL && BX_PLATFORM_WINDOWS)
 #define BGFX_USE_GLX (BGFX_CONFIG_RENDERER_OPENGL && (0 \
 			|| BX_PLATFORM_LINUX \
-			|| BX_PLATFORM_FREEBSD \
+			|| BX_PLATFORM_BSD \
 			) )
 
 #define BGFX_USE_GL_DYNAMIC_LIB (0 \
 			|| BX_PLATFORM_LINUX \
+			|| BX_PLATFORM_BSD \
 			|| BX_PLATFORM_OSX \
 			|| BX_PLATFORM_WINDOWS \
 			)
@@ -34,7 +37,7 @@
 #			define GL_ARB_shader_objects // OSX collsion with GLhandleARB in gltypes.h
 #		endif // BX_PLATFORM_OSX
 #	else
-#		if BX_PLATFORM_LINUX
+#		if BX_PLATFORM_LINUX || BX_PLATFORM_BSD
 #			define GL_PROTOTYPES
 #			define GL_GLEXT_LEGACY
 #			include <GL/gl.h>
@@ -104,8 +107,9 @@ typedef uint64_t GLuint64;
 #endif // BGFX_CONFIG_RENDERER_OPENGL
 
 #include "renderer.h"
-#include "ovr.h"
-#include "renderdoc.h"
+#include "hmd_ovr.h"
+#include "hmd_openvr.h"
+#include "debug_renderdoc.h"
 
 #ifndef GL_LUMINANCE
 #	define GL_LUMINANCE 0x1909
@@ -119,13 +123,37 @@ typedef uint64_t GLuint64;
 #	define GL_R8 0x8229
 #endif // GL_R8
 
+#ifndef GL_R8I
+#	define GL_R8I 0x8231
+#endif // GL_R8I
+
+#ifndef GL_R8UI
+#	define GL_R8UI 0x8232
+#endif // GL_R8UI
+
+#ifndef GL_R8_SNORM
+#	define GL_R8_SNORM 0x8F94
+#endif // GL_R8_SNORM
+
 #ifndef GL_R16
 #	define GL_R16 0x822A
 #endif // GL_R16
 
+#ifndef GL_R16I
+#	define GL_R16I 0x8233
+#endif // GL_R16I
+
+#ifndef GL_R16UI
+#	define GL_R16UI 0x8234
+#endif // GL_R16UI
+
 #ifndef GL_R16F
 #	define GL_R16F 0x822D
 #endif // GL_R16F
+
+#ifndef GL_R16_SNORM
+#	define GL_R16_SNORM 0x8F98
+#endif // GL_R16_SNORM
 
 #ifndef GL_R32UI
 #	define GL_R32UI 0x8236
@@ -139,6 +167,18 @@ typedef uint64_t GLuint64;
 #	define GL_RG8 0x822B
 #endif // GL_RG8
 
+#ifndef GL_RG8I
+#	define GL_RG8I 0x8237
+#endif // GL_RG8I
+
+#ifndef GL_RG8UI
+#	define GL_RG8UI 0x8238
+#endif // GL_RG8UI
+
+#ifndef GL_RG8_SNORM
+#	define GL_RG8_SNORM 0x8F95
+#endif // GL_RG8_SNORM
+
 #ifndef GL_RG16
 #	define GL_RG16 0x822C
 #endif // GL_RG16
@@ -151,9 +191,29 @@ typedef uint64_t GLuint64;
 #	define GL_RG16F 0x822F
 #endif // GL_RG16F
 
+#ifndef GL_RG16I
+#	define GL_RG16I 0x8239
+#endif // GL_RG16I
+
+#ifndef GL_RG16UI
+#	define GL_RG16UI 0x823A
+#endif // GL_RG16UI
+
+#ifndef GL_RG16_SNORM
+#	define GL_RG16_SNORM 0x8F99
+#endif // GL_RG16_SNORM
+
+#ifndef GL_R32I
+#	define GL_R32I 0x8235
+#endif // GL_R32I
+
 #ifndef GL_R32UI
 #	define GL_R32UI 0x8236
 #endif // GL_R32UI
+
+#ifndef GL_RG32I
+#	define GL_RG32I 0x823B
+#endif // GL_RG32I
 
 #ifndef GL_RG32UI
 #	define GL_RG32UI 0x823C
@@ -163,6 +223,54 @@ typedef uint64_t GLuint64;
 #	define GL_RG32F 0x8230
 #endif // GL_RG32F
 
+#ifndef GL_RGB8
+#	define GL_RGB8 0x8051
+#endif // GL_RGB8
+
+#ifndef GL_SRGB
+#	define GL_SRGB 0x8C40
+#endif // GL_SRGB
+
+#ifndef GL_SRGB8
+#	define GL_SRGB8 0x8C41
+#endif // GL_SRGB8
+
+#ifndef GL_RGB8I
+#	define GL_RGB8I 0x8D8F
+#endif // GL_RGB8I
+
+#ifndef GL_RGB8UI
+#	define GL_RGB8UI 0x8D7D
+#endif // GL_RGB8UI
+
+#ifndef GL_RGB8_SNORM
+#	define GL_RGB8_SNORM 0x8F96
+#endif // GL_RGB8_SNORM
+
+#ifndef GL_RGBA8I
+#	define GL_RGBA8I 0x8D8E
+#endif // GL_RGBA8I
+
+#ifndef GL_RGBA8UI
+#	define GL_RGBA8UI 0x8D7C
+#endif // GL_RGBA8UI
+
+#ifndef GL_RGBA8_SNORM
+#	define GL_RGBA8_SNORM 0x8F97
+#endif // GL_RGBA8_SNORM
+
+#ifndef GL_RGBA16I
+#	define GL_RGBA16I 0x8D88
+#endif // GL_RGBA16I
+
+#ifndef GL_RGBA16UI
+#	define GL_RGBA16UI 0x8D76
+#endif // GL_RGBA16UI
+
+#ifndef GL_RGBA16_SNORM
+#	define GL_RGBA16_SNORM 0x8F9B
+#endif // GL_RGBA16_SNORM
+
 #ifndef GL_RGBA32UI
 #	define GL_RGBA32UI 0x8D70
 #endif // GL_RGBA32UI
@@ -170,6 +278,10 @@ typedef uint64_t GLuint64;
 #ifndef GL_RGBA32F
 #	define GL_RGBA32F 0x8814
 #endif // GL_RGBA32F
+
+#ifndef GL_RGBA32I
+#	define GL_RGBA32I 0x8D82
+#endif // GL_RGBA32I
 
 #ifndef GL_STENCIL_INDEX
 #	define GL_STENCIL_INDEX 0x1901
@@ -223,9 +335,29 @@ typedef uint64_t GLuint64;
 #	define GL_RGBA16UI 0x8D76
 #endif // GL_RGBA16UI
 
+#ifndef GL_RGB9_E5
+#	define GL_RGB9_E5 0x8C3D
+#endif // GL_RGB9_E5
+
+#ifndef GL_UNSIGNED_INT_5_9_9_9_REV
+#	define GL_UNSIGNED_INT_5_9_9_9_REV 0x8C3E
+#endif // GL_UNSIGNED_INT_5_9_9_9_REV
+
 #ifndef GL_R11F_G11F_B10F
 #	define GL_R11F_G11F_B10F 0x8C3A
 #endif // GL_R11F_G11F_B10F
+
+#ifndef GL_UNSIGNED_SHORT_5_6_5_REV
+#	define GL_UNSIGNED_SHORT_5_6_5_REV 0x8364
+#endif // GL_UNSIGNED_SHORT_5_6_5_REV
+
+#ifndef GL_UNSIGNED_SHORT_1_5_5_5_REV
+#	define GL_UNSIGNED_SHORT_1_5_5_5_REV 0x8366
+#endif // GL_UNSIGNED_SHORT_1_5_5_5_REV
+
+#ifndef GL_UNSIGNED_SHORT_4_4_4_4_REV
+#	define GL_UNSIGNED_SHORT_4_4_4_4_REV 0x8365
+#endif // GL_UNSIGNED_SHORT_4_4_4_4_REV
 
 #ifndef GL_UNSIGNED_INT_10F_11F_11F_REV
 #	define GL_UNSIGNED_INT_10F_11F_11F_REV 0x8C3B
@@ -303,6 +435,22 @@ typedef uint64_t GLuint64;
 #	define GL_COMPRESSED_RGBA_PVRTC_4BPPV2_IMG 0x9138
 #endif // GL_COMPRESSED_RGBA_PVRTC_4BPPV2_IMG
 
+#ifndef GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT
+#	define GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT 0x8A54
+#endif // GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT
+
+#ifndef GL_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT
+#	define GL_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT 0x8A55
+#endif // GL_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT
+
+#ifndef GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT
+#	define GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT 0x8A56
+#endif // GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT
+
+#ifndef GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT
+#	define GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT 0x8A57
+#endif // GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT
+
 #ifndef GL_COMPRESSED_RGBA_BPTC_UNORM_ARB
 #	define GL_COMPRESSED_RGBA_BPTC_UNORM_ARB 0x8E8C
 #endif // GL_COMPRESSED_RGBA_BPTC_UNORM_ARB
@@ -318,6 +466,30 @@ typedef uint64_t GLuint64;
 #ifndef GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_ARB
 #	define GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_ARB 0x8E8F
 #endif // GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_ARB
+
+#ifndef GL_SRGB8_ALPHA8
+#	define GL_SRGB8_ALPHA8 0x8C43
+#endif // GL_SRGB8_ALPHA8
+
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT
+#	define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT 0x8C4D
+#endif // GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT
+
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT
+#	define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT 0x8C4E
+#endif // GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT
+
+#ifndef GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT
+#	define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT 0x8C4F
+#endif // GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT
+
+#ifndef GL_COMPRESSED_SRGB8_ETC2
+#	define GL_COMPRESSED_SRGB8_ETC2 0x9275
+#endif // GL_COMPRESSED_SRGB8_ETC2
+
+#ifndef GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2
+#	define GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2 0x9277
+#endif // GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2
 
 #ifndef GL_TRANSLATED_SHADER_SOURCE_LENGTH_ANGLE
 #	define GL_TRANSLATED_SHADER_SOURCE_LENGTH_ANGLE 0x93A0
@@ -343,9 +515,25 @@ typedef uint64_t GLuint64;
 #	define GL_MAX_COLOR_ATTACHMENTS 0x8CDF
 #endif // GL_MAX_COLOR_ATTACHMENTS
 
+#ifndef GL_MAX_DRAW_BUFFERS
+#	define GL_MAX_DRAW_BUFFERS 0x8824
+#endif // GL_MAX_DRAW_BUFFERS
+
 #ifndef GL_QUERY_RESULT
 #	define GL_QUERY_RESULT 0x8866
 #endif // GL_QUERY_RESULT
+
+#ifndef GL_QUERY_RESULT_AVAILABLE
+#	define GL_QUERY_RESULT_AVAILABLE 0x8867
+#endif // GL_QUERY_RESULT_AVAILABLE
+
+#ifndef GL_SAMPLES_PASSED
+#	define GL_SAMPLES_PASSED 0x8914
+#endif // GL_SAMPLES_PASSED
+
+#ifndef GL_ANY_SAMPLES_PASSED
+#	define GL_ANY_SAMPLES_PASSED 0x8C2F
+#endif // GL_ANY_SAMPLES_PASSED
 
 #ifndef GL_READ_FRAMEBUFFER
 #	define GL_READ_FRAMEBUFFER 0x8CA8
@@ -358,6 +546,10 @@ typedef uint64_t GLuint64;
 #ifndef GL_TIME_ELAPSED
 #	define GL_TIME_ELAPSED 0x88BF
 #endif // GL_TIME_ELAPSED
+
+#ifndef GL_TIMESTAMP
+#	define GL_TIMESTAMP 0x8E28
+#endif // GL_TIMESTAMP
 
 #ifndef GL_VBO_FREE_MEMORY_ATI
 #	define GL_VBO_FREE_MEMORY_ATI 0x87FB
@@ -424,9 +616,61 @@ typedef uint64_t GLuint64;
 #	define GL_COMPARE_REF_TO_TEXTURE 0x884E
 #endif // GL_COMPARE_REF_TO_TEXTURE
 
+#ifndef GL_INT_SAMPLER_2D
+#	define GL_INT_SAMPLER_2D 0x8DCA
+#endif // GL_INT_SAMPLER_2D
+
+#ifndef GL_UNSIGNED_INT_SAMPLER_2D
+#	define GL_UNSIGNED_INT_SAMPLER_2D 0x8DD2
+#endif // GL_UNSIGNED_INT_SAMPLER_2D
+
+#ifndef GL_INT_SAMPLER_2D_ARRAY
+#	define GL_INT_SAMPLER_2D_ARRAY 0x8DCF
+#endif // GL_INT_SAMPLER_2D_ARRAY
+
+#ifndef GL_UNSIGNED_INT_SAMPLER_2D_ARRAY
+#	define GL_UNSIGNED_INT_SAMPLER_2D_ARRAY 0x8DD7
+#endif // GL_UNSIGNED_INT_SAMPLER_2D_ARRAY
+
+#ifndef GL_INT_SAMPLER_3D
+#	define GL_INT_SAMPLER_3D 0x8DCB
+#endif // GL_INT_SAMPLER_3D
+
+#ifndef GL_UNSIGNED_INT_SAMPLER_3D
+#	define GL_UNSIGNED_INT_SAMPLER_3D 0x8DD3
+#endif // GL_UNSIGNED_INT_SAMPLER_3D
+
+#ifndef GL_INT_SAMPLER_CUBE
+#	define GL_INT_SAMPLER_CUBE 0x8DCC
+#endif // GL_INT_SAMPLER_CUBEER_3D
+
+#ifndef GL_UNSIGNED_INT_SAMPLER_CUBE
+#	define GL_UNSIGNED_INT_SAMPLER_CUBE 0x8DD4
+#endif // GL_UNSIGNED_INT_SAMPLER_CUBE
+
+#ifndef GL_SAMPLER_2D_MULTISAMPLE
+#	define GL_SAMPLER_2D_MULTISAMPLE 0x9108
+#endif // GL_SAMPLER_2D_MULTISAMPLE
+
+#ifndef GL_INT_SAMPLER_2D_MULTISAMPLE
+#	define GL_INT_SAMPLER_2D_MULTISAMPLE 0x9109
+#endif // GL_INT_SAMPLER_2D_MULTISAMPLE
+
+#ifndef GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE
+#	define GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE 0x910A
+#endif // GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE
+
 #ifndef GL_SAMPLER_2D_SHADOW
 #	define GL_SAMPLER_2D_SHADOW 0x8B62
 #endif // GL_SAMPLER_2D_SHADOW
+
+#ifndef GL_SAMPLER_2D_ARRAY
+#	define GL_SAMPLER_2D_ARRAY 0x8DC1
+#endif // GL_SAMPLER_2D_ARRAY
+
+#ifndef GL_SAMPLER_2D_ARRAY_SHADOW
+#	define GL_SAMPLER_2D_ARRAY_SHADOW 0x8DC4
+#endif // GL_SAMPLER_2D_ARRAY_SHADOW
 
 #ifndef GL_TEXTURE_MAX_LEVEL
 #	define GL_TEXTURE_MAX_LEVEL 0x813D
@@ -484,6 +728,22 @@ typedef uint64_t GLuint64;
 #	define GL_IMAGE_CUBE 0x9050
 #endif // GL_IMAGE_CUBE
 
+#ifndef GL_INT_IMAGE_1D
+#	define GL_INT_IMAGE_1D 0x9057
+#endif // GL_INT_IMAGE_1D
+
+#ifndef GL_INT_IMAGE_2D
+#	define GL_INT_IMAGE_2D 0x9058
+#endif // GL_INT_IMAGE_2D
+
+#ifndef GL_INT_IMAGE_3D
+#	define GL_INT_IMAGE_3D 0x9059
+#endif // GL_INT_IMAGE_3D
+
+#ifndef GL_INT_IMAGE_CUBE
+#	define GL_INT_IMAGE_CUBE 0x905B
+#endif // GL_INT_IMAGE_CUBE
+
 #ifndef GL_UNSIGNED_INT_IMAGE_1D
 #	define GL_UNSIGNED_INT_IMAGE_1D 0x9062
 #endif // GL_UNSIGNED_INT_IMAGE_1D
@@ -540,11 +800,126 @@ typedef uint64_t GLuint64;
 #	define GL_LOCATION 0x930E
 #endif // GL_LOCATION
 
+#ifndef GL_UNSIGNED_INT_10_10_10_2
+#	define GL_UNSIGNED_INT_10_10_10_2 0x8DF6
+#endif // GL_UNSIGNED_INT_10_10_10_2
+
+#ifndef GL_FRAMEBUFFER_SRGB
+#	define GL_FRAMEBUFFER_SRGB 0x8DB9
+#endif // GL_FRAMEBUFFER_SRGB
+
+#ifndef GL_NUM_EXTENSIONS
+#	define GL_NUM_EXTENSIONS 0x821D
+#endif // GL_NUM_EXTENSIONS
+
+#ifndef GL_SAMPLE_ALPHA_TO_COVERAGE
+#	define GL_SAMPLE_ALPHA_TO_COVERAGE 0x809E
+#endif // GL_SAMPLE_ALPHA_TO_COVERAGE
+
+#ifndef GL_CONSERVATIVE_RASTERIZATION_NV
+#	define GL_CONSERVATIVE_RASTERIZATION_NV 0x9346
+#endif // GL_CONSERVATIVE_RASTERIZATION_NV
+
+#ifndef GL_NEGATIVE_ONE_TO_ONE
+#	define GL_NEGATIVE_ONE_TO_ONE 0x935E
+#endif // GL_NEGATIVE_ONE_TO_ONE
+
+#ifndef GL_ZERO_TO_ONE
+#	define GL_ZERO_TO_ONE 0x935F
+#endif // GL_ZERO_TO_ONE
+
+#ifndef GL_LOWER_LEFT
+#	define GL_LOWER_LEFT 0x8CA1
+#endif // GL_LOWER_LEFT
+
+#ifndef GL_UPPER_LEFT
+#	define GL_UPPER_LEFT 0x8CA2
+#endif // GL_UPPER_LEFT
+
+// _KHR or _ARB...
+#define GL_DEBUG_OUTPUT_SYNCHRONOUS         0x8242
+#define GL_DEBUG_NEXT_LOGGED_MESSAGE_LENGTH 0x8243
+#define GL_DEBUG_CALLBACK_FUNCTION          0x8244
+#define GL_DEBUG_CALLBACK_USER_PARAM        0x8245
+#define GL_DEBUG_SOURCE_API                 0x8246
+#define GL_DEBUG_SOURCE_WINDOW_SYSTEM       0x8247
+#define GL_DEBUG_SOURCE_SHADER_COMPILER     0x8248
+#define GL_DEBUG_SOURCE_THIRD_PARTY         0x8249
+#define GL_DEBUG_SOURCE_APPLICATION         0x824A
+#define GL_DEBUG_SOURCE_OTHER               0x824B
+#define GL_DEBUG_TYPE_ERROR                 0x824C
+#define GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR   0x824D
+#define GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR    0x824E
+#define GL_DEBUG_TYPE_PORTABILITY           0x824F
+#define GL_DEBUG_TYPE_PERFORMANCE           0x8250
+#define GL_DEBUG_TYPE_OTHER                 0x8251
+#define GL_DEBUG_TYPE_MARKER                0x8268
+#define GL_DEBUG_TYPE_PUSH_GROUP            0x8269
+#define GL_DEBUG_TYPE_POP_GROUP             0x826A
+#define GL_DEBUG_SEVERITY_NOTIFICATION      0x826B
+#define GL_MAX_DEBUG_GROUP_STACK_DEPTH      0x826C
+#define GL_DEBUG_GROUP_STACK_DEPTH          0x826D
+#define GL_MAX_LABEL_LENGTH                 0x82E8
+#define GL_MAX_DEBUG_MESSAGE_LENGTH         0x9143
+#define GL_MAX_DEBUG_LOGGED_MESSAGES        0x9144
+#define GL_DEBUG_LOGGED_MESSAGES            0x9145
+#define GL_DEBUG_SEVERITY_HIGH              0x9146
+#define GL_DEBUG_SEVERITY_MEDIUM            0x9147
+#define GL_DEBUG_SEVERITY_LOW               0x9148
+
+#ifndef GL_DEPTH_CLAMP
+#	define GL_DEPTH_CLAMP 0x864F
+#endif // GL_DEPTH_CLAMP
+
+#ifndef GL_TEXTURE_BORDER_COLOR
+#	define GL_TEXTURE_BORDER_COLOR 0x1004
+#endif // GL_TEXTURE_BORDER_COLOR
+
+#ifndef GL_CLAMP_TO_BORDER
+#	define GL_CLAMP_TO_BORDER 0x812D
+#endif // GL_CLAMP_TO_BORDER
+
+#ifndef GL_TEXTURE_2D_ARRAY
+#	define GL_TEXTURE_2D_ARRAY 0x8C1A
+#endif // GL_TEXTURE_2D_ARRAY
+
+#ifndef GL_TEXTURE_2D_MULTISAMPLE_ARRAY
+#	define GL_TEXTURE_2D_MULTISAMPLE_ARRAY 0x9102
+#endif // GL_TEXTURE_2D_MULTISAMPLE_ARRAY
+
+#ifndef GL_TEXTURE_CUBE_MAP_ARRAY
+#	define GL_TEXTURE_CUBE_MAP_ARRAY 0x9009
+#endif // GL_TEXTURE_CUBE_MAP_ARRAY
+
+#ifndef GL_TEXTURE_CUBE_MAP_SEAMLESS
+#	define GL_TEXTURE_CUBE_MAP_SEAMLESS 0x884F
+#endif // GL_TEXTURE_CUBE_MAP_SEAMLESS
+
+#ifndef GL_TEXTURE_2D_MULTISAMPLE
+#	define GL_TEXTURE_2D_MULTISAMPLE 0x9100
+#endif // GL_TEXTURE_2D_MULTISAMPLE
+
+#ifndef GL_DRAW_INDIRECT_BUFFER
+#	define GL_DRAW_INDIRECT_BUFFER 0x8F3F
+#endif // GL_DRAW_INDIRECT_BUFFER
+
+#ifndef GL_DISPATCH_INDIRECT_BUFFER
+#	define GL_DISPATCH_INDIRECT_BUFFER 0x90EE
+#endif // GL_DISPATCH_INDIRECT_BUFFER
+
+#ifndef GL_MAX_NAME_LENGTH
+#	define GL_MAX_NAME_LENGTH 0x92F6
+#endif // GL_MAX_NAME_LENGTH
+
+#ifndef GL_DEBUG_SEVERITY_NOTIFICATION
+#	define GL_DEBUG_SEVERITY_NOTIFICATION 0x826b
+#endif // GL_DEBUG_SEVERITY_NOTIFICATION
+
 #if BX_PLATFORM_NACL
 #	include "glcontext_ppapi.h"
 #elif BX_PLATFORM_WINDOWS
 #	include <windows.h>
-#elif BX_PLATFORM_LINUX
+#elif BX_PLATFORM_LINUX || BX_PLATFORM_BSD
 #	include "glcontext_glx.h"
 #elif BX_PLATFORM_OSX
 #	include "glcontext_nsgl.h"
@@ -570,7 +945,37 @@ typedef uint64_t GLuint64;
 
 namespace bgfx
 {
-	class ConstantBuffer;
+	class UniformBuffer;
+} // namespace bgfx
+
+namespace bgfx { namespace gl
+{
+#if BGFX_CONFIG_USE_OVR
+	struct OVRBufferGL : public OVRBufferI
+	{
+		virtual void create(const ovrSession& _session, int _eyeIdx, int _msaaSamples) BX_OVERRIDE;
+		virtual void destroy(const ovrSession& _session) BX_OVERRIDE;
+		virtual void render(const ovrSession& _session) BX_OVERRIDE;
+		virtual void postRender(const ovrSession& _sesion) BX_OVERRIDE;
+
+		GLuint m_eyeFbo;
+		GLuint m_eyeTexId;
+		GLuint m_depthBuffer;
+		GLuint m_msaaEyeFbo;
+		GLuint m_msaaEyeTexId;
+		GLuint m_msaaDepthBuffer;
+	};
+
+	struct OVRMirrorGL : public OVRMirrorI
+	{
+		virtual void create(const ovrSession& _session, int _width, int _height) BX_OVERRIDE;
+		virtual void destroy(const ovrSession& _session) BX_OVERRIDE;
+		virtual void blit(const ovrSession& _session) BX_OVERRIDE;
+
+		GLuint m_mirrorFBO;
+	};
+#endif // BGFX_CONFIG_USE_OVR
+
 	void dumpExtensions(const char* _extensions);
 
 	const char* glEnumName(GLenum _enum);
@@ -579,9 +984,9 @@ namespace bgfx
 				BX_MACRO_BLOCK_BEGIN \
 					/*BX_TRACE(#_call);*/ \
 					_call; \
-					GLenum err = glGetError(); \
-					_check(0 == err, #_call "; GL error 0x%x: %s", err, glEnumName(err) ); \
-					BX_UNUSED(err); \
+					GLenum gl_err = glGetError(); \
+					_check(0 == gl_err, #_call "; GL error 0x%x: %s", gl_err, glEnumName(gl_err) ); \
+					BX_UNUSED(gl_err); \
 				BX_MACRO_BLOCK_END
 
 #define IGNORE_GL_ERROR_CHECK(...) BX_NOOP()
@@ -736,9 +1141,10 @@ namespace bgfx
 
 	struct IndexBufferGL
 	{
-		void create(uint32_t _size, void* _data)
+		void create(uint32_t _size, void* _data, uint16_t _flags)
 		{
-			m_size = _size;
+			m_size  = _size;
+			m_flags = _flags;
 
 			GL_CHECK(glGenBuffers(1, &m_id) );
 			BX_CHECK(0 != m_id, "Failed to generate buffer id.");
@@ -746,14 +1152,22 @@ namespace bgfx
 			GL_CHECK(glBufferData(GL_ELEMENT_ARRAY_BUFFER
 				, _size
 				, _data
-				, (NULL==_data)?GL_DYNAMIC_DRAW:GL_STATIC_DRAW
+				, (NULL==_data) ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW
 				) );
 			GL_CHECK(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0) );
 		}
 
-		void update(uint32_t _offset, uint32_t _size, void* _data)
+		void update(uint32_t _offset, uint32_t _size, void* _data, bool _discard = false)
 		{
 			BX_CHECK(0 != m_id, "Updating invalid index buffer.");
+
+			if (_discard)
+			{
+				// orphan buffer...
+				destroy();
+				create(m_size, NULL, m_flags);
+			}
+
 			GL_CHECK(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_id) );
 			GL_CHECK(glBufferSubData(GL_ELEMENT_ARRAY_BUFFER
 				, _offset
@@ -773,36 +1187,48 @@ namespace bgfx
 		GLuint m_id;
 		uint32_t m_size;
 		VaoCacheRef m_vcref;
+		uint16_t m_flags;
 	};
 
 	struct VertexBufferGL
 	{
-		void create(uint32_t _size, void* _data, VertexDeclHandle _declHandle)
+		void create(uint32_t _size, void* _data, VertexDeclHandle _declHandle, uint16_t _flags)
 		{
 			m_size = _size;
 			m_decl = _declHandle;
+			const bool drawIndirect = 0 != (_flags & BGFX_BUFFER_DRAW_INDIRECT);
+
+			m_target = drawIndirect ? GL_DRAW_INDIRECT_BUFFER : GL_ARRAY_BUFFER;
 
 			GL_CHECK(glGenBuffers(1, &m_id) );
 			BX_CHECK(0 != m_id, "Failed to generate buffer id.");
-			GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, m_id) );
-			GL_CHECK(glBufferData(GL_ARRAY_BUFFER
+			GL_CHECK(glBindBuffer(m_target, m_id) );
+			GL_CHECK(glBufferData(m_target
 				, _size
 				, _data
-				, (NULL==_data)?GL_DYNAMIC_DRAW:GL_STATIC_DRAW
+				, (NULL==_data) ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW
 				) );
-			GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, 0) );
+			GL_CHECK(glBindBuffer(m_target, 0) );
 		}
 
-		void update(uint32_t _offset, uint32_t _size, void* _data)
+		void update(uint32_t _offset, uint32_t _size, void* _data, bool _discard = false)
 		{
 			BX_CHECK(0 != m_id, "Updating invalid vertex buffer.");
-			GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, m_id) );
-			GL_CHECK(glBufferSubData(GL_ARRAY_BUFFER
+
+			if (_discard)
+			{
+				// orphan buffer...
+				destroy();
+				create(m_size, NULL, m_decl, 0);
+			}
+
+			GL_CHECK(glBindBuffer(m_target, m_id) );
+			GL_CHECK(glBufferSubData(m_target
 				, _offset
 				, _size
 				, _data
 				) );
-			GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, 0) );
+			GL_CHECK(glBindBuffer(m_target, 0) );
 		}
 
 		void destroy();
@@ -813,6 +1239,7 @@ namespace bgfx
 		}
 
 		GLuint m_id;
+		GLenum m_target;
 		uint32_t m_size;
 		VertexDeclHandle m_decl;
 		VaoCacheRef m_vcref;
@@ -827,17 +1254,27 @@ namespace bgfx
 			, m_fmt(GL_ZERO)
 			, m_type(GL_ZERO)
 			, m_flags(0)
-			, m_currentFlags(UINT32_MAX)
+			, m_currentSamplerHash(UINT32_MAX)
 			, m_numMips(0)
 		{
 		}
 
-		bool init(GLenum _target, uint32_t _width, uint32_t _height, uint8_t _format, uint8_t _numMips, uint32_t _flags);
+		bool init(GLenum _target, uint32_t _width, uint32_t _height, uint32_t _depth, uint8_t _numMips, uint32_t _flags);
 		void create(const Memory* _mem, uint32_t _flags, uint8_t _skip);
 		void destroy();
+		void overrideInternal(uintptr_t _ptr);
 		void update(uint8_t _side, uint8_t _mip, const Rect& _rect, uint16_t _z, uint16_t _depth, uint16_t _pitch, const Memory* _mem);
-		void setSamplerState(uint32_t _flags);
-		void commit(uint32_t _stage, uint32_t _flags);
+		void setSamplerState(uint32_t _flags, const float _rgba[4]);
+		void commit(uint32_t _stage, uint32_t _flags, const float _palette[][4]);
+		void resolve() const;
+
+		bool isCubeMap() const
+		{
+			return 0
+				|| GL_TEXTURE_CUBE_MAP       == m_target
+				|| GL_TEXTURE_CUBE_MAP_ARRAY == m_target
+				;
+		}
 
 		GLuint m_id;
 		GLuint m_rbo;
@@ -845,9 +1282,10 @@ namespace bgfx
 		GLenum m_fmt;
 		GLenum m_type;
 		uint32_t m_flags;
-		uint32_t m_currentFlags;
+		uint32_t m_currentSamplerHash;
 		uint32_t m_width;
 		uint32_t m_height;
+		uint32_t m_depth;
 		uint8_t m_numMips;
 		uint8_t m_requestedFormat;
 		uint8_t m_textureFormat;
@@ -880,18 +1318,21 @@ namespace bgfx
 			memset(m_fbo, 0, sizeof(m_fbo) );
 		}
 
-		void create(uint8_t _num, const TextureHandle* _handles);
+		void create(uint8_t _num, const Attachment* _attachment);
 		void create(uint16_t _denseIdx, void* _nwh, uint32_t _width, uint32_t _height, TextureFormat::Enum _depthFormat);
+		void postReset();
 		uint16_t destroy();
 		void resolve();
-		void discard(uint8_t _flags);
+		void discard(uint16_t _flags);
 
 		SwapChainGL* m_swapChain;
 		GLuint m_fbo[2];
 		uint32_t m_width;
 		uint32_t m_height;
 		uint16_t m_denseIdx;
-		uint8_t m_num;
+		uint8_t  m_num;
+		uint8_t  m_numTh;
+		Attachment m_attachment[BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS];
 	};
 
 	struct ProgramGL
@@ -905,8 +1346,8 @@ namespace bgfx
 
 		void create(const ShaderGL& _vsh, const ShaderGL& _fsh);
 		void destroy();
- 		void init();
- 		void bindAttributes(const VertexDecl& _vertexDecl, uint32_t _baseVertex = 0) const;
+		void init();
+		void bindAttributes(const VertexDecl& _vertexDecl, uint32_t _baseVertex = 0) const;
 		void bindInstanceData(uint32_t _stride, uint32_t _baseVertex = 0) const;
 
 		void add(uint32_t _hash)
@@ -918,49 +1359,146 @@ namespace bgfx
 
 		uint8_t m_used[Attrib::Count+1]; // dense
 		GLint m_attributes[Attrib::Count]; // sparse
-		GLint m_instanceData[BGFX_CONFIG_MAX_INSTANCE_DATA_COUNT];
+		GLint m_instanceData[BGFX_CONFIG_MAX_INSTANCE_DATA_COUNT+1];
 
- 		GLint m_sampler[BGFX_CONFIG_MAX_TEXTURE_SAMPLERS];
- 		uint8_t m_numSamplers;
+		GLint m_sampler[BGFX_CONFIG_MAX_TEXTURE_SAMPLERS];
+		uint8_t m_numSamplers;
 
-		ConstantBuffer* m_constantBuffer;
+		UniformBuffer* m_constantBuffer;
 		PredefinedUniform m_predefined[PredefinedUniform::Count];
 		uint8_t m_numPredefined;
 		VaoCacheRef m_vcref;
 	};
 
-	struct QueriesGL
+	struct TimerQueryGL
 	{
+		TimerQueryGL()
+			: m_control(BX_COUNTOF(m_frame) )
+		{
+		}
+
 		void create()
 		{
-			glGenQueries(BX_COUNTOF(m_queries), m_queries);
+			for (uint32_t ii = 0; ii < BX_COUNTOF(m_frame); ++ii)
+			{
+				Frame& frame = m_frame[ii];
+				GL_CHECK(glGenQueries(1, &frame.m_begin) );
+				GL_CHECK(glGenQueries(1, &frame.m_elapsed) );
+			}
 		}
 
 		void destroy()
 		{
-			glDeleteQueries(BX_COUNTOF(m_queries), m_queries);
+			for (uint32_t ii = 0; ii < BX_COUNTOF(m_frame); ++ii)
+			{
+				Frame& frame = m_frame[ii];
+				GL_CHECK(glDeleteQueries(1, &frame.m_begin) );
+				GL_CHECK(glDeleteQueries(1, &frame.m_elapsed) );
+			}
 		}
 
-		void begin(uint16_t _id, GLenum _target) const
+		void begin()
 		{
-			glBeginQuery(_target, m_queries[_id]);
+			while (0 == m_control.reserve(1) )
+			{
+				get();
+			}
+
+			Frame& frame = m_frame[m_control.m_current];
+			if (!BX_ENABLED(BX_PLATFORM_OSX) )
+			{
+				GL_CHECK(glQueryCounter(frame.m_begin
+						, GL_TIMESTAMP
+						) );
+			}
+
+			GL_CHECK(glBeginQuery(GL_TIME_ELAPSED
+					, frame.m_elapsed
+					) );
 		}
 
-		void end(GLenum _target) const
+		void end()
 		{
-			glEndQuery(_target);
+			GL_CHECK(glEndQuery(GL_TIME_ELAPSED) );
+			m_control.commit(1);
 		}
 
-		uint64_t getResult(uint16_t _id) const
+		bool get()
 		{
-			uint64_t result;
-			glGetQueryObjectui64v(m_queries[_id], GL_QUERY_RESULT, &result);
-			return result;
+			if (0 != m_control.available() )
+			{
+				Frame& frame = m_frame[m_control.m_read];
+
+				GLint available;
+				GL_CHECK(glGetQueryObjectiv(frame.m_elapsed
+						, GL_QUERY_RESULT_AVAILABLE
+						, &available
+						) );
+
+				if (available)
+				{
+					if (!BX_ENABLED(BX_PLATFORM_OSX) )
+					{
+						GL_CHECK(glGetQueryObjectui64v(frame.m_begin
+								, GL_QUERY_RESULT
+								, &m_begin
+								) );
+					}
+					else
+					{
+						m_begin = 0;
+					}
+
+					GL_CHECK(glGetQueryObjectui64v(frame.m_elapsed
+							, GL_QUERY_RESULT
+							, &m_elapsed
+							) );
+					m_end = m_begin + m_elapsed;
+					m_control.consume(1);
+					return true;
+				}
+			}
+
+			return false;
 		}
 
-		GLuint m_queries[64];
+		uint64_t m_begin;
+		uint64_t m_end;
+		uint64_t m_elapsed;
+
+		struct Frame
+		{
+			GLuint m_begin;
+			GLuint m_elapsed;
+		};
+
+		Frame m_frame[4];
+		bx::RingBufferControl m_control;
 	};
 
-} // namespace bgfx
+	struct OcclusionQueryGL
+	{
+		OcclusionQueryGL()
+			: m_control(BX_COUNTOF(m_query) )
+		{
+		}
+
+		void create();
+		void destroy();
+		void begin(Frame* _render, OcclusionQueryHandle _handle);
+		void end();
+		void resolve(Frame* _render, bool _wait = false);
+
+		struct Query
+		{
+			GLuint m_id;
+			OcclusionQueryHandle m_handle;
+		};
+
+		Query m_query[BGFX_CONFIG_MAX_OCCUSION_QUERIES];
+		bx::RingBufferControl m_control;
+	};
+
+} /* namespace gl */ } // namespace bgfx
 
 #endif // BGFX_RENDERER_GL_H_HEADER_GUARD

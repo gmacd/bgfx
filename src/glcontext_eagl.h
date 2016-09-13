@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2015 Branimir Karadzic. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * Copyright 2011-2016 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #ifndef BGFX_GLCONTEXT_EAGL_H_HEADER_GUARD
@@ -8,22 +8,26 @@
 
 #if BX_PLATFORM_IOS
 
-namespace bgfx
+namespace bgfx { namespace gl
 {
 	struct SwapChainGL;
 
 	struct GlContext
 	{
 		GlContext()
-			: m_context(0)
+			: m_current(0)
+			, m_context(0)
+			, m_fbo(0)
+			, m_colorRbo(0)
+			, m_depthStencilRbo(0)
 		{
 		}
 
 		void create(uint32_t _width, uint32_t _height);
 		void destroy();
-		void resize(uint32_t _width, uint32_t _height, bool _vsync);
+		void resize(uint32_t _width, uint32_t _height, uint32_t _flags);
 
-		static bool isSwapChainSupported();
+		uint64_t getCaps() const;
 		SwapChainGL* createSwapChain(void* _nwh);
 		void destroySwapChain(SwapChainGL*  _swapChain);
 		void swap(SwapChainGL* _swapChain = NULL);
@@ -41,14 +45,14 @@ namespace bgfx
 			return 0 != m_context;
 		}
 
-		void* m_view;
+		SwapChainGL* m_current;
 		void* m_context;
 
 		GLuint m_fbo;
 		GLuint m_colorRbo;
 		GLuint m_depthStencilRbo;
 	};
-} // namespace bgfx
+} /* namespace gl */ } // namespace bgfx
 
 #endif // BX_PLATFORM_IOS
 

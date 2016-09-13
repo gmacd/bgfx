@@ -1,6 +1,6 @@
 /*
- * Copyright 2011-2015 Branimir Karadzic. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * Copyright 2011-2016 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #ifndef BGFX_GLCONTEXT_WGL_H_HEADER_GUARD
@@ -10,7 +10,7 @@
 
 #include <wgl/wglext.h>
 
-namespace bgfx
+namespace bgfx { namespace gl
 {
 typedef PROC (APIENTRYP PFNWGLGETPROCADDRESSPROC) (LPCSTR lpszProc);
 typedef BOOL (APIENTRYP PFNWGLMAKECURRENTPROC) (HDC hdc, HGLRC hglrc);
@@ -70,9 +70,9 @@ typedef void (APIENTRYP PFNGLSTENCILOPPROC) (GLenum fail, GLenum zfail, GLenum z
 
 		void create(uint32_t _width, uint32_t _height);
 		void destroy();
-		void resize(uint32_t _width, uint32_t _height, bool _vsync);
+		void resize(uint32_t _width, uint32_t _height, uint32_t _flags);
 
-		static bool isSwapChainSupported();
+		uint64_t getCaps() const;
 		SwapChainGL* createSwapChain(void* _nwh);
 		void destroySwapChain(SwapChainGL*  _swapChain);
 		void swap(SwapChainGL* _swapChain = NULL);
@@ -93,7 +93,7 @@ typedef void (APIENTRYP PFNGLSTENCILOPPROC) (GLenum fail, GLenum zfail, GLenum z
 		HGLRC m_context;
 		HDC m_hdc;
 	};
-} // namespace bgfx
+} /* namespace gl */ } // namespace bgfx
 
 #endif // BGFX_USE_WGL
 

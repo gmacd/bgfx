@@ -1,6 +1,6 @@
 /*
  * Copyright 2014 Kai Jourdan. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  *
  * Based on code from Brian Luczkiewicz
  * https://github.com/blucz/Vector
@@ -33,26 +33,16 @@ const float DEFAULT_BRIGHTNESS = 1.0f;
 const int TEXTURE_SIZE = 64;
 const int HALF_TEXTURE_SIZE = TEXTURE_SIZE / 2;
 
-struct PosColorUvVertex
+void PosColorUvVertex::init()
 {
-	float m_x;
-	float m_y;
-	float m_z;
-	float m_u;
-	float m_v;
-	uint32_t m_abgr;
+	ms_decl
+		.begin()
+		.add(bgfx::Attrib::Position,  3, bgfx::AttribType::Float)
+		.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+		.add(bgfx::Attrib::Color0,    4, bgfx::AttribType::Uint8, true)
+		.end();
+}
 
-	static void init()
-	{
-		ms_decl
-			.begin()
-			.add(bgfx::Attrib::Position,  3, bgfx::AttribType::Float)
-			.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
-			.add(bgfx::Attrib::Color0,    4, bgfx::AttribType::Uint8, true)
-			.end();
-	}
-	static bgfx::VertexDecl ms_decl;
-};
 bgfx::VertexDecl PosColorUvVertex::ms_decl;
 
 inline float normalizef(float _a)
@@ -93,16 +83,11 @@ void VectorDisplay::setup(uint16_t _width, uint16_t _height, int _view)
 	m_view = _view;
 
 	m_drawToScreenShader = loadProgram("vs_vectordisplay_fb", "fs_vectordisplay_fb");
-	u_compose_alpha = bgfx::createUniform("u_compose_alpha", bgfx::UniformType::Uniform1f);
+	m_blurShader         = loadProgram("vs_vectordisplay_fb", "fs_vectordisplay_blur");
+	m_blitShader         = loadProgram("vs_vectordisplay_fb", "fs_vectordisplay_blit");
 
-	m_blurShader = loadProgram("vs_vectordisplay_fb", "fs_vectordisplay_blur");
-	u_blur_scale = bgfx::createUniform("u_blur_scale", bgfx::UniformType::Uniform2fv);
-	u_compose_mult = bgfx::createUniform("u_compose_mult", bgfx::UniformType::Uniform1f);
-
-	m_blitShader = loadProgram("vs_vectordisplay_fb", "fs_vectordisplay_blit");
-
-	//generate uniforms for sampler
-	s_textureSampler = bgfx::createUniform("u_tex1", bgfx::UniformType::Uniform1iv);
+	u_params   = bgfx::createUniform("u_params",   bgfx::UniformType::Vec4);
+	s_texColor = bgfx::createUniform("s_texColor", bgfx::UniformType::Int1);
 
 	genLinetex();
 
@@ -131,17 +116,13 @@ void VectorDisplay::teardown()
 	teardownResDependent();
 
 	bgfx::destroyProgram(m_drawToScreenShader);
-	bgfx::destroyUniform(u_compose_alpha);
-	bgfx::destroyTexture(m_lineTexId);
-	bgfx::destroyUniform(s_lineTexture);
-
 	bgfx::destroyProgram(m_blurShader);
-	bgfx::destroyUniform(u_blur_scale);
-	bgfx::destroyUniform(u_compose_mult);
-
-	bgfx::destroyUniform(s_textureSampler);
-
 	bgfx::destroyProgram(m_blitShader);
+
+	bgfx::destroyUniform(u_params);
+	bgfx::destroyUniform(s_texColor);
+
+	bgfx::destroyTexture(m_lineTexId);
 }
 
 void VectorDisplay::beginFrame()
@@ -164,7 +145,8 @@ void VectorDisplay::endFrame()
 	BX_CHECK(m_points.size() < MAX_NUMBER_VERTICES, "");
 
 	bgfx::updateDynamicVertexBuffer(m_vertexBuffers[m_currentDrawStep]
-		, bgfx::copy(m_points.data(), (uint32_t)m_points.size() * sizeof(point_t) )
+		, 0
+		, bgfx::copy(m_points.data(), (uint32_t)m_points.size() * sizeof(PosColorUvVertex) )
 	);
 	m_vertexBuffersSize[m_currentDrawStep] = (uint32_t)m_points.size();
 
@@ -189,12 +171,12 @@ void VectorDisplay::endFrame()
 				alpha = powf(m_decayValue, stepi - 1.0f) * m_initialDecay;
 			}
 
-			bgfx::setUniform(u_compose_alpha, &alpha);
+			float params[4] = { 0.0f, 0.0f, 0.0f, alpha };
+			bgfx::setUniform(u_params, &params);
 
-			bgfx::setTexture(0, s_lineTexture, m_lineTexId);
-			bgfx::setProgram(m_drawToScreenShader);
+			bgfx::setTexture(0, s_texColor, m_lineTexId);
 
-			bgfx::setVertexBuffer(m_vertexBuffers[i], m_vertexBuffersSize[i]); // explicitly feed vertex number!
+			bgfx::setVertexBuffer(m_vertexBuffers[i], 0, m_vertexBuffersSize[i]); // explicitly feed vertex number!
 
 			bgfx::setState(0
 				| BGFX_STATE_RGB_WRITE
@@ -204,24 +186,21 @@ void VectorDisplay::endFrame()
 				);
 
 			bgfx::setViewName(m_view, "RenderVectorDisplay");
-			bgfx::submit(m_view);
+			bgfx::submit(m_view, m_drawToScreenShader);
 		}
 	}
 
 	int viewCounter = m_view + 1;
 
+	bx::mtxOrtho(proj, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 100.0f);
+
 	float glow_iter_mult = 1.05f + ( (m_brightness - 1.0f) / 5.0f);
 	float glow_fin_mult  = 1.25f + ( (m_brightness - 1.0f) / 2.0f);
-
-	bx::mtxOrtho(proj, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 100.0f);
+	float params[4] =  { 0.0f, 0.0f, glow_iter_mult, 1.0f };
 
 	if (m_brightness > 0)
 	{
-		float alpha = 1.0f;
-		bgfx::setUniform(u_compose_alpha, &alpha);
-		bgfx::setUniform(u_compose_mult, &glow_iter_mult);
-
-		bgfx::setTexture(0, s_textureSampler, m_sceneFrameBuffer);
+		bgfx::setTexture(0, s_texColor, m_sceneFrameBuffer);
 
 		int npasses = (int)(m_brightness * 4);
 		for (int pass = 0; pass < npasses; pass++)
@@ -234,32 +213,29 @@ void VectorDisplay::endFrame()
 				| BGFX_STATE_RGB_WRITE
 				| BGFX_STATE_ALPHA_WRITE
 				);
-			float scale[2];
-			scale[0] = 1.0f / m_glowWidth;
-			scale[1] = 0.0f;
-			bgfx::setUniform(u_blur_scale, &scale);
-			bgfx::setProgram(m_blurShader);
+			params[0] = 1.0f / m_glowWidth;
+			params[1] = 0.0f;
+			bgfx::setUniform(u_params, &params);
 
 			bgfx::setViewTransform(viewCounter, NULL, proj);
 			screenSpaceQuad(m_glowWidth, m_glowHeight);
 			bgfx::setViewName(viewCounter, "BlendPassA");
-			bgfx::submit(viewCounter);
+			bgfx::submit(viewCounter, m_blurShader);
 
 			viewCounter++;
 
 			bgfx::setViewFrameBuffer(viewCounter, m_glow1FrameBuffer);            //second glow pass
 			bgfx::setViewRect(viewCounter, 0, 0, m_glowWidth, m_glowHeight);
-			bgfx::setTexture(0, s_textureSampler, m_glow0FrameBuffer);
-			bgfx::setProgram(m_blurShader);
+			bgfx::setTexture(0, s_texColor, m_glow0FrameBuffer);
 
 			bgfx::setViewTransform(viewCounter, NULL, proj);
 			screenSpaceQuad(m_glowWidth, m_glowHeight);
 
-			bgfx::setUniform(u_compose_alpha, &alpha);
-			bgfx::setUniform(u_compose_mult, &glow_iter_mult);
-			scale[0] = 0.0f;
-			scale[1] = 1.0f / m_glowHeight;
-			bgfx::setUniform(u_blur_scale, &scale);
+			params[0] = 0.0f;
+			params[1] = 1.0f / m_glowHeight;
+			params[2] = glow_iter_mult;
+			params[3] = 1.0f;
+			bgfx::setUniform(u_params, params);
 
 			bgfx::setState(0
 				| BGFX_STATE_RGB_WRITE
@@ -267,32 +243,33 @@ void VectorDisplay::endFrame()
 				);
 
 			bgfx::setViewName(viewCounter, "BlendPassB");
-			bgfx::submit(viewCounter);
+			bgfx::submit(viewCounter, m_blurShader);
 
 			viewCounter++;
 
 			//set for next iteration
-			bgfx::setTexture(0, s_textureSampler, m_glow1FrameBuffer);
+			bgfx::setTexture(0, s_texColor, m_glow1FrameBuffer);
 		}
 	}
+
+	bgfx::discard();
 
 	//now do last pass, combination of blur and normal buffer to screen
 	bgfx::setViewTransform(viewCounter, NULL, proj);
 	bgfx::setViewRect(viewCounter, 0, 0, m_screenWidth, m_screenHeight);
-	bgfx::setTexture(0, s_textureSampler, m_sceneFrameBuffer);
-	bgfx::setProgram(m_blitShader);
+	bgfx::setTexture(0, s_texColor, m_sceneFrameBuffer);
 	bgfx::setState(0
 		| BGFX_STATE_RGB_WRITE
 		| BGFX_STATE_ALPHA_WRITE
 		| BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE)
 		);
 
-	float tempOne = 1.0f;
-	bgfx::setUniform(u_compose_alpha, &tempOne);
-	bgfx::setUniform(u_compose_mult, &tempOne);
+	params[2] = 1.0f;
+	params[3] = 1.0f;
+	bgfx::setUniform(u_params, params);
 	bgfx::setViewName(viewCounter, "BlendVectorToDisplay");
 	screenSpaceQuad(m_screenWidth, m_screenHeight);
-	bgfx::submit(viewCounter);
+	bgfx::submit(viewCounter, m_blitShader);
 	viewCounter++;
 
 	if (m_brightness > 0)
@@ -300,17 +277,18 @@ void VectorDisplay::endFrame()
 		// blend in the glow
 		bgfx::setViewTransform(viewCounter, NULL, proj);
 		bgfx::setViewRect(viewCounter, 0, 0, m_screenWidth, m_screenHeight);
-		bgfx::setTexture(0, s_textureSampler, m_glow1FrameBuffer);
-		bgfx::setProgram(m_blitShader);
+		bgfx::setTexture(0, s_texColor, m_glow1FrameBuffer);
 		bgfx::setState(0
 			| BGFX_STATE_RGB_WRITE
 			| BGFX_STATE_ALPHA_WRITE
 			| BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE)
 			);
-		bgfx::setUniform(u_compose_mult, &glow_fin_mult);
+
+		params[2] = glow_fin_mult;
+		bgfx::setUniform(u_params, params);
 		bgfx::setViewName(viewCounter, "BlendBlurToDisplay");
 		screenSpaceQuad(m_screenWidth, m_screenHeight);
-		bgfx::submit(viewCounter);
+		bgfx::submit(viewCounter, m_blitShader);
 		viewCounter++;
 	}
 }
@@ -319,7 +297,7 @@ void VectorDisplay::beginDraw(float _x, float _y)
 {
 	BX_CHECK(0 == m_pendingPoints.size(), "Begin draw on already filled buffer!");
 
-	pending_point_t point;
+	PendingPoint point;
 	point.x = _x * m_drawScale + m_drawOffsetX;
 	point.y = _y * m_drawScale + m_drawOffsetY;
 	m_pendingPoints.push_back(point);
@@ -327,7 +305,7 @@ void VectorDisplay::beginDraw(float _x, float _y)
 
 void VectorDisplay::drawTo(float _x, float _y)
 {
-	pending_point_t point;
+	PendingPoint point;
 	point.x = _x * m_drawScale + m_drawOffsetX;
 	point.y = _y * m_drawScale + m_drawOffsetY;
 	m_pendingPoints.push_back(point);
@@ -343,7 +321,7 @@ void VectorDisplay::endDraw()
 
 	// from the list of points, build a list of lines
 	uint32_t nlines = (uint32_t)m_pendingPoints.size() - 1;
-	line_t* lines = (line_t*)alloca(nlines * sizeof(line_t) );
+	Line* lines = (Line*)alloca(nlines * sizeof(Line) );
 
 	float t = effectiveThickness();
 	int first_last_same = bx::fabsolute(m_pendingPoints[0].x - m_pendingPoints[m_pendingPoints.size() - 1].x) < 0.1
@@ -352,7 +330,7 @@ void VectorDisplay::endDraw()
 	// compute basics
 	for (size_t i = 1; i < m_pendingPoints.size(); i++)
 	{
-		line_t* line = &lines[i - 1];
+		Line* line = &lines[i - 1];
 		line->is_first = i == 1;
 		line->is_last = i == nlines;
 
@@ -361,10 +339,10 @@ void VectorDisplay::endDraw()
 		line->y0 = m_pendingPoints[i - 1].y;
 		line->x1 = m_pendingPoints[i].x;
 		line->y1 = m_pendingPoints[i].y;
-		line->a = atan2(line->y1 - line->y0, line->x1 - line->x0);                  // angle from positive x axis, increasing ccw, [-pi, pi]
+		line->a = atan2f(line->y1 - line->y0, line->x1 - line->x0); // angle from positive x axis, increasing ccw, [-pi, pi]
 		line->sin_a = sinf(line->a);
 		line->cos_a = cosf(line->a);
-		line->len = sqrt( (line->x1 - line->x0) * (line->x1 - line->x0) + (line->y1 - line->y0) * (line->y1 - line->y0) );
+		line->len = sqrtf( (line->x1 - line->x0) * (line->x1 - line->x0) + (line->y1 - line->y0) * (line->y1 - line->y0) );
 
 		// figure out what connections we have
 		line->has_prev = (!line->is_first
@@ -382,7 +360,7 @@ void VectorDisplay::endDraw()
 	// compute adjustments for connected line segments
 	for (size_t i = 0; i < nlines; i++)
 	{
-		line_t* line = &lines[i], * pline = &lines[(nlines + i - 1) % nlines];
+		Line* line = &lines[i], * pline = &lines[(nlines + i - 1) % nlines];
 
 		if (line->has_prev)
 		{
@@ -440,7 +418,7 @@ void VectorDisplay::endDraw()
 	// compute line geometry
 	for (size_t i = 0; i < nlines; i++)
 	{
-		line_t* line = &lines[i];
+		Line* line = &lines[i];
 
 		// shorten lines if needed
 		line->x0 = line->x0 + line->s0 * line->cos_a;
@@ -604,13 +582,13 @@ void VectorDisplay::setDrawColor(float _r, float _g, float _b, float _a)
 
 void VectorDisplay::appendTexpoint(float _x, float _y, float _u, float _v)
 {
-	point_t point;
-	point.x = _x;
-	point.y = _y;
-	point.z = 0.0;
-	point.color = (m_drawColorA << 24) | (m_drawColorB << 16) | (m_drawColorG << 8) | m_drawColorR;
-	point.u = _u / TEXTURE_SIZE;
-	point.v = 1.0f - _v / TEXTURE_SIZE;
+	PosColorUvVertex point;
+	point.m_x = _x;
+	point.m_y = _y;
+	point.m_z = 0.0;
+	point.m_abgr = (m_drawColorA << 24) | (m_drawColorB << 16) | (m_drawColorG << 8) | m_drawColorR;
+	point.m_u = _u / TEXTURE_SIZE;
+	point.m_v = 1.0f - _v / TEXTURE_SIZE;
 	m_points.push_back(point);
 }
 
@@ -650,14 +628,14 @@ void VectorDisplay::drawFan(float _cx, float _cy, float _pa, float _a, float _t,
 	}
 }
 
-void VectorDisplay::drawLines(line_t* _lines, int _numberLines)
+void VectorDisplay::drawLines(Line* _lines, int _numberLines)
 {
 	int i;
 	float t = effectiveThickness();
 
 	for (i = 0; i < _numberLines; i++)
 	{
-		line_t* line = &_lines[i], * pline = &_lines[(_numberLines + i - 1) % _numberLines];
+		Line* line = &_lines[i], * pline = &_lines[(_numberLines + i - 1) % _numberLines];
 
 		if (line->has_prev)     // draw fan for connection to previous
 		{
@@ -879,8 +857,7 @@ void VectorDisplay::genLinetex()                                    // generate 
 		| BGFX_TEXTURE_MAG_POINT
 		;
 
-	m_lineTexId = bgfx::createTexture2D(TEXTURE_SIZE, TEXTURE_SIZE, 1, bgfx::TextureFormat::BGRA8, flags, mem);
-	s_lineTexture = bgfx::createUniform("s_lineTexture", bgfx::UniformType::Uniform1iv);
+	m_lineTexId = bgfx::createTexture2D(TEXTURE_SIZE, TEXTURE_SIZE, false, 1, bgfx::TextureFormat::BGRA8, flags, mem);
 }
 
 static const int8_t simplex[95][112] =

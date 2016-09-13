@@ -1,6 +1,6 @@
 ﻿/*
  * Copyright 2013 Jeremie Roy. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #ifndef CUBE_ATLAS_H_HEADER_GUARD
@@ -15,7 +15,7 @@
 /// algorithm based on C++ sources provided by Jukka Jylänki at:
 /// http://clb.demon.fi/files/RectangleBinPack/
 
-#include <bgfx.h>
+#include <bgfx/bgfx.h>
 
 struct AtlasRegion
 {
@@ -54,12 +54,12 @@ class Atlas
 {
 public:
 	/// create an empty dynamic atlas (region can be updated and added)
-	/// @param textureSize an atlas creates a texture cube of 6 faces with size equal to (textureSize*textureSize * sizeof(RGBA))
+	/// @param textureSize an atlas creates a texture cube of 6 faces with size equal to (textureSize*textureSize * sizeof(RGBA) )
 	/// @param maxRegionCount maximum number of region allowed in the atlas
 	Atlas(uint16_t _textureSize, uint16_t _maxRegionsCount = 4096);
 
 	/// initialize a static atlas with serialized data	(region can be updated but not added)
-	/// @param textureSize an atlas creates a texture cube of 6 faces with size equal to (textureSize*textureSize * sizeof(RGBA))
+	/// @param textureSize an atlas creates a texture cube of 6 faces with size equal to (textureSize*textureSize * sizeof(RGBA) )
 	/// @param textureBuffer buffer of size 6*textureSize*textureSize*sizeof(uint32_t) (will be copied)
 	/// @param regionCount number of region in the Atlas
 	/// @param regionBuffer buffer containing the region (will be copied)

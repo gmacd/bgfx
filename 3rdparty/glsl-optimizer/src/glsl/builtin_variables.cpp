@@ -830,10 +830,12 @@ void
 builtin_variable_generator::generate_vs_special_vars()
 {
 
-   if (state->is_version(130, 300))
+   if (state->is_version(130, 300) || state->EXT_gpu_shader4_enable)
       add_system_value(SYSTEM_VALUE_VERTEX_ID, state->metal_target ? uint_t : int_t, "gl_VertexID", glsl_precision_high);
    if (state->ARB_draw_instanced_enable)
       add_system_value(SYSTEM_VALUE_INSTANCE_ID, int_t, "gl_InstanceIDARB", glsl_precision_high);
+   if (state->EXT_draw_instanced_enable)
+      add_system_value(SYSTEM_VALUE_INSTANCE_ID, int_t, "gl_InstanceIDEXT", glsl_precision_high);
    if (state->ARB_draw_instanced_enable || state->is_version(140, 300))
 	   add_system_value(SYSTEM_VALUE_INSTANCE_ID, state->metal_target ? uint_t : int_t, "gl_InstanceID", glsl_precision_high);
    if (state->AMD_vertex_shader_layer_enable)
@@ -934,14 +936,14 @@ builtin_variable_generator::generate_fs_special_vars()
       if (state->AMD_shader_stencil_export_warn)
          var->enable_extension_warning("GL_AMD_shader_stencil_export");
    }
-
+	
 	if (state->EXT_frag_depth_enable) {
 		ir_variable *const var =
 		add_output(FRAG_RESULT_DEPTH, float_t, "gl_FragDepthEXT", glsl_precision_high);
 		if (state->EXT_frag_depth_warn)
 			var->enable_extension_warning("GL_EXT_frag_depth");
 	}
-
+	
 	if (state->EXT_shader_framebuffer_fetch_enable) {
 		ir_variable *const var =
 			add_input(VARYING_SLOT_VAR0, array(vec4_t, state->Const.MaxDrawBuffers), "gl_LastFragData", glsl_precision_medium);
@@ -950,6 +952,7 @@ builtin_variable_generator::generate_fs_special_vars()
 	}
 
 	{
+		// BK - gl_PrimitiveID
 		ir_variable *var;
 		var = add_output(VARYING_SLOT_PRIMITIVE_ID, int_t, "gl_PrimitiveID", glsl_precision_high);
 		var->data.interpolation = INTERP_QUALIFIER_FLAT;

@@ -1,6 +1,6 @@
 /*
- * Copyright 2010-2015 Branimir Karadzic. All rights reserved.
- * License: http://www.opensource.org/licenses/BSD-2-Clause
+ * Copyright 2010-2016 Branimir Karadzic. All rights reserved.
+ * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #ifndef INPUT_H_HEADER_GUARD
@@ -38,6 +38,12 @@ void inputProcess();
 
 ///
 void inputSetKeyState(entry::Key::Enum  _key, uint8_t _modifiers, bool _down);
+
+///
+bool inputGetKeyState(entry::Key::Enum _key, uint8_t* _modifiers = NULL);
+
+///
+uint8_t inputGetModifiersState();
 
 /// Adds single UTF-8 encoded character into input buffer.
 void inputChar(uint8_t _len, const uint8_t _char[4]);
